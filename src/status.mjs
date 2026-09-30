@@ -3,6 +3,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 
+import { findRegistrations } from './clients.mjs';
 import { about } from './drive.mjs';
 import { createClient } from './client.mjs';
 import {
@@ -41,6 +42,7 @@ export async function runStatus({
   env = process.env,
   platform = process.platform,
   version = process.version,
+  cwd = process.cwd(),
 } = {}) {
   let healthy = true;
   const fail = () => {
@@ -88,6 +90,22 @@ export async function runStatus({
     log(`${WARN} Bỏ qua CLAUDE_PLUGIN_DATA=${foreign} — thư mục của plugin khác, không phải gdrive.`);
   } else if (env.CLAUDE_PLUGIN_DATA) {
     log(`${OK} Thư mục data plugin Claude: ${pluginDataDir(env, home)}`);
+  }
+
+  // 1b. Client AI khác đã đăng ký MCP server chưa (plugin Claude tự lo, không liệt kê).
+  const registrations = findRegistrations({ home, env, platform, cwd });
+  if (registrations.length) {
+    log(`${OK} Đã đăng ký cho: ${registrations.map((r) => `${r.label}${r.project ? ' (project)' : ''}`).join(', ')}`);
+    for (const r of registrations.filter((x) => x.missing.length)) {
+      log(`${BAD} ${r.label}: entry trỏ tới đường dẫn không còn tồn tại (${r.missing.join(', ')}).`);
+      log(`     Sửa: gdrive install --client ${r.id}${r.project ? ' --project' : ''}`);
+      fail();
+    }
+    const active = cfgWithSource?.path;
+    if (active && /[\\/]\.claude[\\/]plugins[\\/]data[\\/]/.test(active)) {
+      log(`${WARN} Credential các client trên đang dùng nằm trong thư mục data plugin Claude —`);
+      log('     gỡ plugin Claude thì mất theo; khi đó chạy lại: gdrive init --sa-json <đường-dẫn-key.json>');
+    }
   }
 
   // 2. Credential

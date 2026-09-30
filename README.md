@@ -1,7 +1,11 @@
 # gdrive-cli
 
-Truy cập Google Sheets / Docs / Slides / Drive bằng **service account**, cho Claude Code và
+Truy cập Google Sheets / Docs / Slides / Drive bằng **service account** — MCP server cho
+Claude Code, Codex, GitHub Copilot, Cursor, Kiro (và mọi client MCP khác), kèm CLI và thư viện
 cho script Node — **zero dependency**.
+
+- Claude Code → cài plugin (ngay dưới).
+- Codex / Copilot / Cursor / Kiro → xem [Dùng với Codex, Copilot, Cursor, Kiro](#dùng-với-codex-copilot-cursor-kiro).
 
 Cài **một** plugin cho Claude Code — skill, MCP tool và CLI gói chung, dùng được ở **mọi repo**.
 Yêu cầu Node.js >= 18.17.
@@ -34,6 +38,43 @@ Mặc định là **readonly**: hai tool ghi bị **ẩn hẳn** khỏi danh sá
 nó không nhìn thấy. Bật ghi qua bản plugin:
 `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`.
 
+## Dùng với Codex, Copilot, Cursor, Kiro
+
+Ba lệnh, credential dùng chung cho mọi client (máy có cả plugin Claude thì dùng chung luôn với
+Claude, không tạo bản key thứ hai):
+
+```bash
+npm i -g github:sdc-ren/gdrive-cli
+gdrive init --sa-json ~/keys/service-account.json
+gdrive install --client cursor          # hoặc codex, copilot, copilot-cli, kiro — nhiều client: cursor,codex
+```
+
+Khởi động lại client là có các tool `gdrive_*` ở trên. `install` chỉ **merge** đúng khoá
+`gdrive` vào file config của client, giữ nguyên mọi server khác, chạy lại bao nhiêu lần cũng
+được, và **không bao giờ ghi credential** vào đó.
+
+| `--client` | Cấp user (mặc định) | `--project` (repo đang đứng) |
+|---|---|---|
+| `codex` | `~/.codex/config.toml` | `.codex/config.toml` (Codex chỉ đọc khi project đã trust) |
+| `copilot` (VS Code) | `mcp.json` trong thư mục User của VS Code (profile mặc định) | `.vscode/mcp.json` |
+| `copilot-cli` | `~/.copilot/mcp-config.json` | — |
+| `cursor` | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
+| `kiro` | `~/.kiro/settings/mcp.json` | `.kiro/settings/mcp.json` |
+
+- **Cấp user** ghi đường dẫn tuyệt đối tới `node` và server, vì app mở từ Dock/Start thường
+  không có PATH của nvm/Homebrew. Đổi phiên bản Node thì chạy lại `install`; `gdrive status`
+  báo đỏ khi đường dẫn trong config không còn tồn tại.
+- **`--project`** ghi `gdrive mcp` (không chứa đường dẫn máy cá nhân) để commit được; mọi người
+  dùng repo cần cài gdrive-cli global.
+- **`--skill`** cài kèm Agent Skill (`SKILL.md`) hướng dẫn chọn tool và xử lý lỗi, vào
+  `~/.agents/skills/gdrive` (Kiro: `~/.kiro/skills/gdrive`). Server cũng gửi hướng dẫn rút gọn
+  qua trường MCP `instructions` cho client nào đọc trường đó.
+- File config có comment (JSONC, hay gặp ở VS Code) hoặc TOML viết kiểu khó sửa an toàn thì
+  `install` **không đụng vào**, chỉ in đoạn cấu hình để bạn tự dán.
+- Client khác chưa có trong danh sách: trỏ nó vào lệnh `gdrive mcp` (MCP stdio).
+
+Gỡ đăng ký (giữ credential): `gdrive uninstall --client cursor [--project]`.
+
 ## Lệnh
 
 CLI vẫn còn cho việc gọi tay và cho script. Khi cài qua plugin, chạy bằng file trong plugin:
@@ -51,12 +92,14 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" status
 node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" uninstall [--purge]   # dọn bản cài cũ; --purge xoá config plugin chứa private key
 ```
 
-Nếu cài qua npm global thì mới có lệnh `gdrive`:
+Nếu cài global thì có lệnh `gdrive` (tên `gdrive-cli` trên npm là **gói khác**, phải cài từ GitHub):
 
 ```bash
-npm i -g gdrive-cli
+npm i -g github:sdc-ren/gdrive-cli
 gdrive read <url>
 gdrive init --mode readwrite
+gdrive install --client <tên> [--project] [--skill]
+gdrive mcp                     # chạy MCP server (stdio)
 ```
 
 Mọi lệnh nhận **thẳng URL dán vào** — tự bóc file id và gid. `read` luôn in kèm danh sách

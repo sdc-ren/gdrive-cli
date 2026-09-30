@@ -40,7 +40,7 @@ const { INSTRUCTIONS } = await import('../src/instructions.mjs');
 // Phiên bản protocol ta biết. Client gửi phiên bản khác thì echo lại của client —
 // stdio MCP tương thích ngược tốt, cãi nhau về version chỉ làm hỏng handshake.
 const FALLBACK_PROTOCOL = '2025-06-18';
-const SERVER_INFO = { name: 'gdrive', version: '0.2.0' };
+const SERVER_INFO = { name: 'gdrive', version: '0.3.0' };
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 const pendingWrites = new Set();
 

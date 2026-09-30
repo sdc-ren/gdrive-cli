@@ -8,6 +8,7 @@ import { realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { runClientUninstall, runInstall } from '../src/clients.mjs';
 import { createClient } from '../src/client.mjs';
 import { readConfig } from '../src/config.mjs';
 import {
@@ -28,7 +29,7 @@ import { buildA1, parseGoogleUrl } from '../src/url.mjs';
 
 const VALUE_FLAGS = new Set([
   'sheet', 'range', 'max-rows', 'max-chars', 'format', 'out', 'folder', 'name-contains',
-  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode',
+  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode', 'client',
 ]);
 const REPEATABLE_FLAGS = new Set(['set']);
 
@@ -78,6 +79,12 @@ const HELP = `gdrive — Google Drive / Sheets / Docs / Slides bằng service ac
   gdrive init [--sa-json <file>|--adc] [--mode readonly|readwrite] [--yes] [--no-test] [--no-skill]
   gdrive status
   gdrive uninstall [--purge]
+
+  gdrive install --client <codex|copilot|copilot-cli|cursor|kiro>[,…] [--project] [--skill]
+        Đăng ký MCP server vào client AI (mặc định cấp user; --project ghi vào repo đang
+        đứng). --skill cài kèm Agent Skill hướng dẫn dùng tool.
+  gdrive uninstall --client <tên>[,…] [--project]
+        Gỡ đăng ký khỏi client, không đụng credential.
 
   gdrive mcp
         Chạy MCP server (stdio) — trỏ Codex, Copilot, Cursor, Kiro… vào lệnh này.
@@ -374,7 +381,8 @@ async function main() {
     case 'write': return cmdWrite(flags);
     case 'init': return runInit(flags);
     case 'status': return runStatus({});
-    case 'uninstall': return runUninstall(flags);
+    case 'install': return runInstall(flags, { hasConfig: Boolean(readConfig()) });
+    case 'uninstall': return flags.client ? runClientUninstall(flags) : runUninstall(flags);
     case 'mcp':
       // Server tự lo vòng đời: đóng stdin thì drain rồi tự thoát. main KHÔNG được resolve,
       // không thì process.exit bên dưới giết server ngay sau handshake.
