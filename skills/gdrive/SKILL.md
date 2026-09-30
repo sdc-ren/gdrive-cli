@@ -1,7 +1,7 @@
 ---
 name: gdrive
 description: Dùng khi làm việc với Google Drive — người dùng dán link docs.google.com (spreadsheets/document/presentation) hoặc drive.google.com, hoặc nói "đọc sheet này", "lấy dữ liệu từ Google Sheet", "đọc file docx/xlsx/slide trên Drive", "ghi kết quả vào sheet", "upload lên Drive", "tìm file trên Drive". Kèm cách xử lý 3 lỗi hay gặp nhất (403 chưa share, quota Shared Drive, file Office đời cũ).
-version: 0.2.0
+version: 0.3.0
 ---
 
 # Google Drive qua service account
@@ -40,9 +40,10 @@ dùng mở trong Drive → File → "Lưu dưới dạng Google Docs/Sheets" r�
   changes…) → **nói lại cho người dùng**, đừng lặng lẽ bỏ qua.
 - Link "Publish to the web" (`/d/e/2PACX-…`) **không chứa file id** — bảo người dùng mở file
   rồi copy link trên thanh địa chỉ.
-- Không thấy tool `gdrive_sheet_write` / `gdrive_upload` nghĩa là plugin đang ở chế độ
-  **readonly**. Muốn ghi với bản plugin thì người dùng chạy
-  `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`. Server sẽ báo đổi danh sách
-  tool; client hỗ trợ `listChanged` sẽ lấy lại tool ghi ở request kế tiếp, client không hỗ trợ
-  thì mở session mới.
-- Chưa cấu hình credential → chạy skill `gdrive-setup`.
+- Không thấy tool `gdrive_sheet_write` / `gdrive_upload` nghĩa là đang ở chế độ **readonly**.
+  Muốn ghi thì người dùng chạy `gdrive init --mode readwrite` (bản plugin Claude Code:
+  `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`). Server sẽ báo đổi danh
+  sách tool; client hỗ trợ `listChanged` sẽ lấy lại tool ghi ở request kế tiếp, client không
+  hỗ trợ thì mở session mới.
+- Chưa cấu hình credential → người dùng chạy `gdrive init --sa-json <đường-dẫn-key.json>`
+  (trong Claude Code: skill `gdrive-setup`). Không bao giờ hỏi nội dung file key.
