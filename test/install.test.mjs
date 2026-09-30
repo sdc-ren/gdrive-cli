@@ -360,7 +360,7 @@ test('configSearchPaths: GDRIVE_CONFIG_DIR → CLAUDE_PLUGIN_DATA → plugin gdr
   assert.equal(paths[0], join('/g', 'config.json'));
   assert.equal(paths[1], join('/p/gdrive-inline', 'config.json'));
   assert.equal(paths[2], join(home, '.claude', 'plugins', 'data', 'gdrive-gdrive-cli', 'config.json'));
-  assert.ok(paths.includes(join(home, '.config', 'gdrive-cli', 'config.json')), 'phải dò thư mục trung lập');
+  assert.ok(paths.includes(join(neutralConfigDir({}, home), 'config.json')), 'phải dò thư mục trung lập');
   assert.equal(paths.at(-1), join(home, '.claude', 'gdrive.json'));
 });
 
