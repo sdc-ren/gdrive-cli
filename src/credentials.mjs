@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { legacyConfigPath, pluginConfigPath, readConfig } from './config.mjs';
+import { readConfigWithSource } from './config.mjs';
 
 export class CredentialError extends Error {
   constructor(message) {
@@ -173,7 +173,8 @@ export function resolveCredentials({
   }
 
   // 6. Config của plugin (hoặc vị trí cũ). Vắng mặt trong CI — đúng như thiết kế.
-  const cfg = readConfig(home, env);
+  const cfgWithSource = readConfigWithSource(home, env);
+  const cfg = cfgWithSource?.config ?? null;
   if (cfg?.clientEmail && cfg?.privateKey) {
     return {
       type: 'service_account',
@@ -181,9 +182,7 @@ export function resolveCredentials({
       privateKey: normalizeKey(cfg.privateKey),
       projectId: cfg.projectId ?? null,
       // Báo ĐÚNG file đang dùng — nhãn cứng từng khiến status nói sai nguồn.
-      source: existsSync(pluginConfigPath(env, home))
-        ? pluginConfigPath(env, home)
-        : legacyConfigPath(home),
+      source: cfgWithSource.path,
     };
   }
 

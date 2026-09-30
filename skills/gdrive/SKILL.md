@@ -41,5 +41,8 @@ dùng mở trong Drive → File → "Lưu dưới dạng Google Docs/Sheets" r�
 - Link "Publish to the web" (`/d/e/2PACX-…`) **không chứa file id** — bảo người dùng mở file
   rồi copy link trên thanh địa chỉ.
 - Không thấy tool `gdrive_sheet_write` / `gdrive_upload` nghĩa là plugin đang ở chế độ
-  **readonly**. Muốn ghi thì người dùng chạy `gdrive init --mode readwrite` rồi mở session mới.
+  **readonly**. Muốn ghi với bản plugin thì người dùng chạy
+  `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`. Server sẽ báo đổi danh sách
+  tool; client hỗ trợ `listChanged` sẽ lấy lại tool ghi ở request kế tiếp, client không hỗ trợ
+  thì mở session mới.
 - Chưa cấu hình credential → chạy skill `gdrive-setup`.

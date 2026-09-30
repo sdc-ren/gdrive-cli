@@ -8,11 +8,11 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { legacyConfigPath } from './config.mjs';
+import { legacyConfigPath, listPluginConfigFiles } from './config.mjs';
 
 const RULE_MARKER = 'gdrive/bin/cli.mjs';
 
-export function runUninstall(flags = {}, { home = homedir(), log = console.log } = {}) {
+export function runUninstall(flags = {}, { home = homedir(), log = console.log, env = process.env } = {}) {
   let found = false;
 
   for (const [dir, label] of [
@@ -56,6 +56,22 @@ export function runUninstall(flags = {}, { home = homedir(), log = console.log }
       log(`✅ Đã xoá config cũ ${cfgFile}`);
     } else {
       log(`ℹ️  Giữ lại ${cfgFile} (còn private key). Xoá luôn: thêm --purge`);
+    }
+    found = true;
+  }
+
+  const pluginConfigFiles = listPluginConfigFiles(home, env);
+  if (pluginConfigFiles.length > 0) {
+    if (flags.purge) {
+      for (const file of pluginConfigFiles) {
+        rmSync(file, { force: true });
+        log(`✅ Đã xoá config plugin ${file}`);
+      }
+      log('⚠️  Xoá file không thu hồi được key đã lộ. Biện pháp thật là thu hồi/xoay key trong GCP Console.');
+    } else {
+      log('ℹ️  Giữ lại config plugin sau (mỗi file chứa một private key trên đĩa):');
+      for (const file of pluginConfigFiles) log(`   - ${file}`);
+      log('   Xoá luôn: thêm --purge');
     }
     found = true;
   }

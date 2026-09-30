@@ -63,6 +63,10 @@ function writeLegacyConfig(home, cfg) {
   writeFileSync(join(home, '.claude', 'gdrive.json'), JSON.stringify(cfg));
 }
 
+function reLiteral(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 test('explicit đứng trước tất cả', () => {
   sandbox(({ home, run }) => {
     const cred = resolveCredentials({
@@ -195,6 +199,35 @@ test('config: đọc được cả vị trí CŨ lẫn thư mục data plugin, b
     cred = resolveCredentials({ env: {}, home, run });
     assert.equal(cred.clientEmail, 'moi@x.com');
     assert.equal(cred.source, dataFile);
+  });
+});
+
+test('config: env trỏ thư mục rỗng nhưng source vẫn là file plugin thật đã đọc', () => {
+  sandbox(({ home, run }) => {
+    const actualDir = join(home, '.claude', 'plugins', 'data', 'gdrive-inline');
+    const actualFile = join(actualDir, 'config.json');
+    const emptyEnvDir = join(home, '.claude', 'plugins', 'data', 'gdrive-empty');
+    mkdirSync(actualDir, { recursive: true });
+    mkdirSync(emptyEnvDir, { recursive: true });
+    writeFileSync(
+      actualFile,
+      JSON.stringify({ clientEmail: 'inline@x.com', privateKey: PEM, mode: 'readonly' }),
+    );
+
+    const cred = resolveCredentials({ env: { CLAUDE_PLUGIN_DATA: emptyEnvDir }, home, run });
+    assert.equal(cred.clientEmail, 'inline@x.com');
+    assert.equal(cred.source, actualFile);
+  });
+});
+
+test('config: chỉ có vị trí legacy thì source là đúng file legacy', () => {
+  sandbox(({ home, run }) => {
+    const legacyFile = join(home, '.claude', 'gdrive.json');
+    writeFileSync(legacyFile, JSON.stringify({ clientEmail: 'legacy@x.com', privateKey: PEM }));
+
+    const cred = resolveCredentials({ env: {}, home, run });
+    assert.equal(cred.clientEmail, 'legacy@x.com');
+    assert.equal(cred.source, legacyFile);
   });
 });
 
@@ -339,6 +372,79 @@ test('status cảnh báo scope khi credential không phải service account', as
     const output = logs.join('\n');
     assert.match(output, /readonly KHÔNG giới hạn scope thật/);
     assert.match(output, /tool ghi bị ẩn/);
+  });
+});
+
+test('status: Windows cảnh báo ACL kèm lệnh icacls', async () => {
+  await sandbox(async ({ home }) => {
+    const dir = join(home, '.claude', 'plugins', 'data', 'gdrive-gdrive-cli');
+    const file = join(dir, 'config.json');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, JSON.stringify({ clientEmail: 'sa@x.com', privateKey: PEM, mode: 'readonly' }));
+    const logs = [];
+    await runStatus({
+      home,
+      env: {},
+      platform: 'win32',
+      log: (line) => logs.push(line),
+    });
+    const output = logs.join('\n');
+    assert.match(output, /Windows không set được chmod 600/);
+    assert.match(output, /icacls/);
+    assert.match(output, /%USERNAME%:F/);
+  });
+});
+
+test('status: Node dưới 18.17 báo đỏ', async () => {
+  await sandbox(async ({ home }) => {
+    const logs = [];
+    await runStatus({ home, env: {}, version: 'v18.16.0', log: (line) => logs.push(line) });
+    const output = logs.join('\n');
+    assert.match(output, /❌ Node\.js: v18\.16\.0/);
+    assert.match(output, /cần Node >= 18\.17/);
+  });
+});
+
+test('status: nhiều config plugin thì nêu file đang dùng và file thừa', async () => {
+  await sandbox(async ({ home }) => {
+    const root = join(home, '.claude', 'plugins', 'data');
+    const active = join(root, 'gdrive-gdrive-cli', 'config.json');
+    const stale = join(root, 'gdrive-inline', 'config.json');
+    mkdirSync(join(root, 'gdrive-gdrive-cli'), { recursive: true });
+    mkdirSync(join(root, 'gdrive-inline'), { recursive: true });
+    writeFileSync(active, JSON.stringify({ clientEmail: 'active@x.com', privateKey: PEM, mode: 'readonly' }));
+    writeFileSync(stale, JSON.stringify({ clientEmail: 'stale@x.com', privateKey: PEM, mode: 'readonly' }));
+    const logs = [];
+    await runStatus({ home, env: {}, log: (line) => logs.push(line) });
+    const output = logs.join('\n');
+    assert.match(output, /config plugin chứa private key/);
+    assert.match(output, new RegExp(`ĐANG dùng: ${reLiteral(active)}`));
+    assert.match(output, new RegExp(`bản thừa: ${reLiteral(stale)}`));
+  });
+});
+
+test('status: active config trong CLAUDE_PLUGIN_DATA ngoài gdrive* không bị gắn nhãn bản thừa', async () => {
+  await sandbox(async ({ home }) => {
+    const root = join(home, '.claude', 'plugins', 'data');
+    const activeDir = join(root, 'custom-data-name');
+    const staleDir = join(root, 'gdrive-inline');
+    const active = join(activeDir, 'config.json');
+    const stale = join(staleDir, 'config.json');
+    mkdirSync(activeDir, { recursive: true });
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(active, JSON.stringify({ clientEmail: 'active@x.com', privateKey: PEM, mode: 'readonly' }));
+    writeFileSync(stale, JSON.stringify({ clientEmail: 'stale@x.com', privateKey: PEM, mode: 'readonly' }));
+    const logs = [];
+
+    await runStatus({
+      home,
+      env: { CLAUDE_PLUGIN_DATA: activeDir },
+      log: (line) => logs.push(line),
+    });
+
+    const output = logs.join('\n');
+    assert.match(output, new RegExp(`ĐANG dùng: ${reLiteral(active)}`));
+    assert.match(output, new RegExp(`bản thừa: ${reLiteral(stale)}`));
   });
 });
 

@@ -124,7 +124,13 @@ export async function runInit(
 
     const mode = (flags.mode ?? existing?.mode) === 'readwrite' ? 'readwrite' : 'readonly';
     const cfgFile = writeConfig({ mode, useAdc, ...(credentials ?? {}) }, home, env);
-    log(`✅ Đã ghi cấu hình → ${cfgFile} (chmod 600)`);
+    if (process.platform === 'win32') {
+      log(`✅ Đã ghi cấu hình → ${cfgFile}`);
+      log('⚠️  Windows không set được chmod 600 cho file chứa private key.');
+      log(`   Siết ACL: icacls "${cfgFile}" /inheritance:r /grant:r "%USERNAME%:F"`);
+    } else {
+      log(`✅ Đã ghi cấu hình → ${cfgFile} (chmod 600)`);
+    }
     log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi Claude' : ''}`);
 
     if (!flags['no-test']) {
@@ -156,7 +162,7 @@ export async function runInit(
     }
 
     log(`\nXong. Dữ liệu plugin: ${pluginDataDir(env, home)}`);
-    log('⚠️  MỞ SESSION CLAUDE CODE MỚI để MCP server nạp cấu hình.\n');
+    log('MCP server sẽ phát hiện cấu hình mới ở request kế tiếp; nếu client không refresh tool list thì mở session mới.\n');
     return true;
   } finally {
     rl?.close();

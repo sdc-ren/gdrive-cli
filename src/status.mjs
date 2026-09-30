@@ -5,14 +5,41 @@ import { homedir } from 'node:os';
 
 import { about } from './drive.mjs';
 import { createClient } from './client.mjs';
-import { hasLegacyInstall, pluginConfigPath, pluginDataDir, readConfig } from './config.mjs';
+import {
+  hasLegacyInstall,
+  listPluginConfigFiles,
+  pluginConfigPath,
+  pluginDataDir,
+  readConfigWithSource,
+} from './config.mjs';
 import { resolveCredentials, scopesForMode } from './credentials.mjs';
 
 const OK = '✅';
 const WARN = '⚠️ ';
 const BAD = '❌';
+const MIN_NODE = { major: 18, minor: 17, patch: 0 };
 
-export async function runStatus({ home = homedir(), log = console.log, env = process.env } = {}) {
+function parseNodeVersion(version) {
+  const [, major = '0', minor = '0', patch = '0'] = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version)) ?? [];
+  return { major: Number(major), minor: Number(minor), patch: Number(patch) };
+}
+
+function nodeOk(version) {
+  const got = parseNodeVersion(version);
+  return (
+    got.major > MIN_NODE.major ||
+    (got.major === MIN_NODE.major && got.minor > MIN_NODE.minor) ||
+    (got.major === MIN_NODE.major && got.minor === MIN_NODE.minor && got.patch >= MIN_NODE.patch)
+  );
+}
+
+export async function runStatus({
+  home = homedir(),
+  log = console.log,
+  env = process.env,
+  platform = process.platform,
+  version = process.version,
+} = {}) {
   let healthy = true;
   const fail = () => {
     healthy = false;
@@ -20,21 +47,34 @@ export async function runStatus({ home = homedir(), log = console.log, env = pro
 
   log('\n📁 gdrive — kiểm tra sức khoẻ\n');
 
+  if (nodeOk(version)) {
+    log(`${OK} Node.js: ${version}`);
+  } else {
+    log(`${BAD} Node.js: ${version} — cần Node >= 18.17 để MCP server chạy được.`);
+    log('     Sửa: nâng Node rồi mở lại Claude Code/session terminal.');
+    fail();
+  }
+
   // 1. Cấu hình
   const cfgFile = pluginConfigPath(env, home);
-  const cfg = readConfig(home, env);
+  const cfgWithSource = readConfigWithSource(home, env);
+  const cfg = cfgWithSource?.config ?? null;
   if (!cfg) {
     log(`${WARN} Chưa có cấu hình ở ${cfgFile}`);
     log('     Chạy: gdrive init --sa-json <đường-dẫn-key.json>   (hoặc /gdrive-setup trong Claude)');
     log(`     (vẫn dùng được nếu credential nằm trong biến môi trường)`);
   } else {
-    log(`${OK} Cấu hình: ${existsSync(cfgFile) ? cfgFile : '(vị trí cũ ~/.claude/gdrive.json)'}`);
-    if (process.platform !== 'win32' && existsSync(cfgFile)) {
-      const mode = statSync(cfgFile).mode & 0o777;
+    const activeConfigFile = cfgWithSource.path;
+    log(`${OK} Cấu hình: ${activeConfigFile}`);
+    if (platform === 'win32') {
+      log(`${WARN} Windows không set được chmod 600 cho file chứa private key.`);
+      log(`     Siết ACL: icacls "${activeConfigFile}" /inheritance:r /grant:r "%USERNAME%:F"`);
+    } else if (existsSync(activeConfigFile)) {
+      const mode = statSync(activeConfigFile).mode & 0o777;
       if (mode === 0o600) log(`${OK} Quyền file: 600`);
       else {
         log(`${BAD} Quyền file là ${mode.toString(8)}, phải là 600 — file chứa private key.`);
-        log(`     Sửa: chmod 600 ${cfgFile}`);
+        log(`     Sửa: chmod 600 ${activeConfigFile}`);
         fail();
       }
     }
@@ -60,6 +100,16 @@ export async function runStatus({ home = homedir(), log = console.log, env = pro
   // 3. Tàn dư bản cài cũ
   if (hasLegacyInstall(home)) {
     log(`${WARN} Còn dấu vết bản cài npx cũ — dọn bằng: gdrive uninstall --purge`);
+  }
+
+  const pluginConfigFiles = listPluginConfigFiles(home, env);
+  if (pluginConfigFiles.length > 1) {
+    const active = cfgWithSource?.path;
+    log(`${WARN} Có ${pluginConfigFiles.length} config plugin chứa private key trên đĩa.`);
+    for (const file of pluginConfigFiles) {
+      log(`     ${file === active ? 'ĐANG dùng' : 'bản thừa'}: ${file}`);
+    }
+    log('     Dọn bản thừa: gdrive uninstall --purge (sau đó thu hồi/xoay key trong GCP nếu key đã lộ).');
   }
 
   // 4. Gọi thật

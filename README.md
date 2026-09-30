@@ -4,6 +4,7 @@ Truy cập Google Sheets / Docs / Slides / Drive bằng **service account**, cho
 cho script Node — **zero dependency**.
 
 Cài **một** plugin cho Claude Code — skill, MCP tool và CLI gói chung, dùng được ở **mọi repo**.
+Yêu cầu Node.js >= 18.17.
 
 ```
 /plugin marketplace add dangchison/gdrive-cli
@@ -30,22 +31,32 @@ hoạt đúng hay không:
 | `gdrive_sheet_write` · `gdrive_upload` | Chỉ hiện ở chế độ `readwrite` |
 
 Mặc định là **readonly**: hai tool ghi bị **ẩn hẳn** khỏi danh sách — model không gọi được thứ
-nó không nhìn thấy. Bật ghi: `gdrive init --mode readwrite`.
+nó không nhìn thấy. Bật ghi qua bản plugin:
+`node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`.
 
 ## Lệnh
 
-CLI vẫn còn cho việc gọi tay và cho script:
+CLI vẫn còn cho việc gọi tay và cho script. Khi cài qua plugin, chạy bằng file trong plugin:
 
 ```bash
-gdrive read  <url> [--sheet <tên|gid>] [--range A1:E50] [--json]   # Sheets & .xlsx
-gdrive doc   <url> [--format markdown|text] [--notes]              # Docs/Slides/.docx/.pptx
-gdrive info  <url>                                                 # file này là gì
-gdrive ls    [<url-thư-mục>] [--name-contains …]
-gdrive get   <url> --out <path>
-gdrive put   <file> --folder <url> [--share none|anyone-reader]
-gdrive write <url> --set L5=PASSED --set L6=FAILED
-gdrive init | status
-gdrive uninstall [--purge]   # dọn bản cài npx CŨ (≤ v0.1)
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" read  <url> [--sheet <tên|gid>] [--range A1:E50] [--json]
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" doc   <url> [--format markdown|text] [--notes]
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" info  <url>
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" ls    [<url-thư-mục>] [--name-contains …]
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" get   <url> --out <path>
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" put   <file> --folder <url> [--share none|anyone-reader]
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" write <url> --set L5=PASSED --set L6=FAILED
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" status
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" uninstall [--purge]   # dọn bản cài cũ; --purge xoá config plugin chứa private key
+```
+
+Nếu cài qua npm global thì mới có lệnh `gdrive`:
+
+```bash
+npm i -g gdrive-cli
+gdrive read <url>
+gdrive init --mode readwrite
 ```
 
 Mọi lệnh nhận **thẳng URL dán vào** — tự bóc file id và gid. `read` luôn in kèm danh sách
@@ -53,7 +64,7 @@ tất cả các tab, nên đoán nhầm tab thì gọi lại được ngay, khô
 
 Mặc định cài ở chế độ **readonly**: `write` và `put` bị từ chối ngay tại chỗ. Với service
 account, token được cấp scope `.readonly`; với ADC/gcloud, token giữ nguyên quyền đã được cấp
-cho tài khoản đó. Bật ghi bằng `--mode readwrite`.
+cho tài khoản đó. Bật ghi bằng `init --mode readwrite`.
 
 ## Vì sao zero dependency
 
@@ -94,8 +105,8 @@ Tìm theo thứ tự, dừng ở cái đầu tiên có:
 5. `GOOGLE_APPLICATION_CREDENTIALS` (đường dẫn file key)
 6. Config của plugin — `~/.claude/plugins/data/…/config.json` (chmod 600); rơi về
    `~/.claude/gdrive.json` nếu bạn từng cài kiểu cũ
-7. ADC của gcloud — **opt-in**, chỉ chạy sau `gdrive init --adc`
-8. `gcloud auth print-access-token` — **opt-in**, chỉ chạy sau `gdrive init --adc`
+7. ADC của gcloud — **opt-in**, chỉ chạy sau `init --adc`
+8. `gcloud auth print-access-token` — **opt-in**, chỉ chạy sau `init --adc`
 
 Env đứng trước file config là cố ý: CI không có `~/.claude` nhưng có secret trong env.
 ADC/gcloud bị tắt mặc định vì chúng chạy bằng danh tính cá nhân của người dùng, không phải
@@ -133,7 +144,7 @@ await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Tab'!A1:C3" }); /
 node --test
 ```
 
-154 test, không cần mạng và không cần credential: chữ ký JWT được verify bằng keypair sinh
+179 test, không cần mạng và không cần credential: chữ ký JWT được verify bằng keypair sinh
 tại chỗ, fixture ZIP/OOXML dựng in-memory bằng `zlib.deflateRawSync`, và cả luồng
 init/uninstall chạy trên một HOME tạm. Riêng MCP server được chạy như tiến trình con thật
 và feed byte-stream JSON-RPC vào — bắt được cả ca stdout bị nhiễm thứ không phải JSON.

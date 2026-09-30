@@ -8,7 +8,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 
 /** Id mặc định khi phải tự đoán: tên plugin + marketplace, ký tự lạ → '-'. */
 const PLUGIN_DATA_ID = 'gdrive-gdrive-cli';
@@ -69,46 +69,78 @@ function readJson(file) {
   }
 }
 
-/**
- * Đọc config. Dò LẦN LƯỢT vì tên thư mục data không đoán được (xem pluginDataDir):
- * thư mục do env chỉ định → mọi thư mục `gdrive*` → vị trí cũ của bản cài npx.
- */
-export function readConfig(home = homedir(), env = process.env) {
+function dedupePaths(paths) {
   const seen = new Set();
-  const dirs = [
-    ...(env.CLAUDE_PLUGIN_DATA ? [env.CLAUDE_PLUGIN_DATA] : []),
-    ...candidateDataDirs(home),
-  ];
-  for (const dir of dirs) {
-    if (seen.has(dir)) continue;
-    seen.add(dir);
-    const cfg = readJson(join(dir, 'config.json'));
-    if (cfg) return cfg;
-  }
-  return readJson(legacyConfigPath(home));
+  return paths.filter((path) => {
+    const key = normalize(path);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function pluginConfigSearchPaths(home, env) {
+  return dedupePaths([
+    ...(env.CLAUDE_PLUGIN_DATA ? [join(env.CLAUDE_PLUGIN_DATA, 'config.json')] : []),
+    ...candidateDataDirs(home).map((dir) => join(dir, 'config.json')),
+  ]);
+}
+
+/** Danh sách đường dẫn config theo đúng thứ tự đọc: env → data `gdrive*` → legacy. */
+export function configSearchPaths(home = homedir(), env = process.env) {
+  return dedupePaths([...pluginConfigSearchPaths(home, env), legacyConfigPath(home)]);
 }
 
 /**
- * Ghi config vào MỌI thư mục data đang tồn tại (thường chỉ 1–2), cộng thư mục do env chỉ
- * định. Cố ý ghi nhiều nơi: CLI chạy ngoài Claude Code không biết server sẽ đọc thư mục
- * nào, mà file chỉ ~1.9 KB nên trùng lặp là rẻ hơn nhiều so với việc tool báo thiếu
- * credential trong khi `status` xanh.
+ * Đọc config kèm đường dẫn thật đã dùng. Dò LẦN LƯỢT vì tên thư mục data không đoán được (xem pluginDataDir):
+ * thư mục do env chỉ định → mọi thư mục `gdrive*` → vị trí cũ của bản cài npx.
+ */
+export function readConfigWithSource(home = homedir(), env = process.env) {
+  for (const path of configSearchPaths(home, env)) {
+    const config = readJson(path);
+    if (config) return { config, path };
+  }
+  return null;
+}
+
+export function readConfig(home = homedir(), env = process.env) {
+  return readConfigWithSource(home, env)?.config ?? null;
+}
+
+export function listPluginConfigFiles(home = homedir(), env = process.env) {
+  const files = [];
+  for (const file of pluginConfigSearchPaths(home, env)) {
+    if (existsSync(file)) files.push(file);
+  }
+  return files;
+}
+
+function samePath(a, b) {
+  return normalize(a) === normalize(b);
+}
+
+function isPluginConfigFile(file, home, env) {
+  return pluginConfigSearchPaths(home, env).some((path) => samePath(file, path));
+}
+
+function writeTargetPath(home, env) {
+  const active = readConfigWithSource(home, env)?.path;
+  if (active && isPluginConfigFile(active, home, env)) return active;
+  if (env.CLAUDE_PLUGIN_DATA) return join(env.CLAUDE_PLUGIN_DATA, 'config.json');
+  return join(dataRoot(home), PLUGIN_DATA_ID, 'config.json');
+}
+
+/**
+ * Ghi đúng một file: file plugin đang được đọc → env chỉ định → thư mục mặc định.
+ * Private key không được nhân bản sang nhiều thư mục; cảnh báo/dọn bản thừa là việc của status/uninstall.
  */
 export function writeConfig(cfg, home = homedir(), env = process.env) {
-  const targets = new Set([
-    ...(env.CLAUDE_PLUGIN_DATA ? [env.CLAUDE_PLUGIN_DATA] : []),
-    ...candidateDataDirs(home).filter((d, i) => i === 0 || existsSync(d)),
-  ]);
+  const file = writeTargetPath(home, env);
   const body = `${JSON.stringify(cfg, null, 2)}\n`;
-  let primary = null;
-  for (const dir of targets) {
-    mkdirSync(dir, { recursive: true });
-    const file = join(dir, 'config.json');
-    writeFileSync(file, body);
-    if (process.platform !== 'win32') chmodSync(file, 0o600);
-    primary ??= file;
-  }
-  return primary;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, body);
+  if (process.platform !== 'win32') chmodSync(file, 0o600);
+  return file;
 }
 
 /** Bản cài cũ còn sót không — dùng để nhắc người dùng dọn. */

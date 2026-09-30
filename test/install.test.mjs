@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { pluginConfigPath, pluginDataDir, readConfig } from '../src/config.mjs';
+import { listPluginConfigFiles, pluginConfigPath, pluginDataDir, readConfig } from '../src/config.mjs';
 import { runInit, validateServiceAccountJson } from '../src/init.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
 
@@ -102,6 +102,55 @@ test('init: chạy lại thì giữ credential cũ, đổi được mode', async
   });
 });
 
+test('init: có 2 thư mục gdrive* rỗng thì chỉ tạo đúng 1 config.json', async () => {
+  await sandbox(async ({ home, keyFile, log }) => {
+    const root = join(home, '.claude', 'plugins', 'data');
+    mkdirSync(join(root, 'gdrive-alpha'), { recursive: true });
+    mkdirSync(join(root, 'gdrive-beta'), { recursive: true });
+
+    await runInit(baseFlags(keyFile), { home, log, env: {} });
+
+    const files = listPluginConfigFiles(home, {});
+    assert.equal(files.length, 1);
+    assert.equal(files[0], join(root, 'gdrive-gdrive-cli', 'config.json'));
+  });
+});
+
+test('init: nếu file không mặc định đang được đọc thì ghi đè chính file đó, không tạo file thứ hai', async () => {
+  await sandbox(async ({ home, keyFile, log }) => {
+    const root = join(home, '.claude', 'plugins', 'data');
+    const existing = join(root, 'gdrive-inline', 'config.json');
+    mkdirSync(join(root, 'gdrive-inline'), { recursive: true });
+    writeFileSync(existing, JSON.stringify({ clientEmail: 'old@x.com', privateKey: 'old', mode: 'readonly' }));
+
+    await runInit(baseFlags(keyFile), { home, log, env: {} });
+
+    const files = listPluginConfigFiles(home, {});
+    assert.deepEqual(files, [existing]);
+    const cfg = JSON.parse(readFileSync(existing, 'utf8'));
+    assert.equal(cfg.clientEmail, 'test-sa@proj-test.iam.gserviceaccount.com');
+  });
+});
+
+test('init: env trỏ thư mục rỗng thì ghi đè file plugin đang đọc, không nhân bản private key', async () => {
+  await sandbox(async ({ home, keyFile, log }) => {
+    const root = join(home, '.claude', 'plugins', 'data');
+    const active = join(root, 'gdrive-inline', 'config.json');
+    const emptyEnvDir = join(root, 'gdrive-empty-env');
+    mkdirSync(join(root, 'gdrive-inline'), { recursive: true });
+    mkdirSync(emptyEnvDir, { recursive: true });
+    writeFileSync(active, JSON.stringify({ clientEmail: 'old@x.com', privateKey: 'old', mode: 'readonly' }));
+
+    await runInit(baseFlags(keyFile), { home, log, env: { CLAUDE_PLUGIN_DATA: emptyEnvDir } });
+
+    const files = listPluginConfigFiles(home, { CLAUDE_PLUGIN_DATA: emptyEnvDir });
+    assert.deepEqual(files, [active]);
+    assert.equal(existsSync(join(emptyEnvDir, 'config.json')), false);
+    const cfg = JSON.parse(readFileSync(active, 'utf8'));
+    assert.equal(cfg.clientEmail, 'test-sa@proj-test.iam.gserviceaccount.com');
+  });
+});
+
 test('readConfig: rơi về vị trí CŨ khi chưa có cấu hình plugin', async () => {
   await sandbox(async ({ home, env }) => {
     writeFileSync(
@@ -154,6 +203,47 @@ test('uninstall: không --purge thì giữ config cũ (còn private key)', async
     writeFileSync(join(home, '.claude', 'gdrive.json'), '{}');
     runUninstall({}, { home, log });
     assert.ok(existsSync(join(home, '.claude', 'gdrive.json')));
+  });
+});
+
+test('uninstall: --purge xoá mọi config plugin; không --purge thì giữ nguyên và liệt kê', async () => {
+  await sandbox(async ({ home }) => {
+    const root = join(home, '.claude', 'plugins', 'data');
+    const files = [
+      join(root, 'gdrive-alpha', 'config.json'),
+      join(root, 'gdrive-beta', 'config.json'),
+    ];
+    for (const file of files) {
+      mkdirSync(join(file, '..'), { recursive: true });
+      writeFileSync(file, '{}');
+    }
+
+    const keepLogs = [];
+    runUninstall({}, { home, log: (line) => keepLogs.push(line), env: {} });
+    for (const file of files) assert.ok(existsSync(file));
+    assert.match(keepLogs.join('\n'), /Giữ lại config plugin/);
+    assert.match(keepLogs.join('\n'), /private key/);
+
+    const purgeLogs = [];
+    runUninstall({ purge: true }, { home, log: (line) => purgeLogs.push(line), env: {} });
+    for (const file of files) assert.equal(existsSync(file), false);
+    assert.ok(existsSync(join(root, 'gdrive-alpha')), 'không xoá thư mục data');
+    assert.match(purgeLogs.join('\n'), /thu hồi\/xoay key trong GCP Console/);
+  });
+});
+
+test('uninstall: --purge xoá cả config trong CLAUDE_PLUGIN_DATA không nằm trong gdrive*', async () => {
+  await sandbox(async ({ home }) => {
+    const root = join(home, '.claude', 'plugins', 'data');
+    const envDir = join(root, 'custom-data-name');
+    const envFile = join(envDir, 'config.json');
+    mkdirSync(envDir, { recursive: true });
+    writeFileSync(envFile, '{}');
+
+    runUninstall({ purge: true }, { home, log: () => {}, env: { CLAUDE_PLUGIN_DATA: envDir } });
+
+    assert.equal(existsSync(envFile), false);
+    assert.ok(existsSync(envDir), 'không xoá thư mục data');
   });
 });
 
