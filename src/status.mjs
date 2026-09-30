@@ -6,9 +6,11 @@ import { homedir } from 'node:os';
 import { about } from './drive.mjs';
 import { createClient } from './client.mjs';
 import {
+  configPath,
+  foreignPluginDataDir,
   hasLegacyInstall,
-  listPluginConfigFiles,
-  pluginConfigPath,
+  listConfigFiles,
+  neutralConfigDir,
   pluginDataDir,
   readConfigWithSource,
 } from './config.mjs';
@@ -51,17 +53,17 @@ export async function runStatus({
     log(`${OK} Node.js: ${version}`);
   } else {
     log(`${BAD} Node.js: ${version} — cần Node >= 18.17 để MCP server chạy được.`);
-    log('     Sửa: nâng Node rồi mở lại Claude Code/session terminal.');
+    log('     Sửa: nâng Node rồi khởi động lại client AI (Claude Code, Codex, Cursor…) và terminal.');
     fail();
   }
 
   // 1. Cấu hình
-  const cfgFile = pluginConfigPath(env, home);
+  const cfgFile = configPath(env, home);
   const cfgWithSource = readConfigWithSource(home, env);
   const cfg = cfgWithSource?.config ?? null;
   if (!cfg) {
     log(`${WARN} Chưa có cấu hình ở ${cfgFile}`);
-    log('     Chạy: gdrive init --sa-json <đường-dẫn-key.json>   (hoặc /gdrive-setup trong Claude)');
+    log('     Chạy: gdrive init --sa-json <đường-dẫn-key.json>   (trong Claude Code: /gdrive-setup)');
     log(`     (vẫn dùng được nếu credential nằm trong biến môi trường)`);
   } else {
     const activeConfigFile = cfgWithSource.path;
@@ -80,9 +82,12 @@ export async function runStatus({
     }
     log(`${OK} Chế độ: ${cfg.mode ?? 'readonly'}`);
   }
-  log(`${OK} Thư mục data plugin: ${pluginDataDir(env, home)}`);
-  if (!env.CLAUDE_PLUGIN_DATA) {
-    log(`     (CLAUDE_PLUGIN_DATA không có trong env — đường dẫn tính ra, bình thường khi chạy ngoài Claude Code)`);
+  log(`${OK} Thư mục config chung: ${neutralConfigDir(env, home, platform)}`);
+  const foreign = foreignPluginDataDir(env);
+  if (foreign) {
+    log(`${WARN} Bỏ qua CLAUDE_PLUGIN_DATA=${foreign} — thư mục của plugin khác, không phải gdrive.`);
+  } else if (env.CLAUDE_PLUGIN_DATA) {
+    log(`${OK} Thư mục data plugin Claude: ${pluginDataDir(env, home)}`);
   }
 
   // 2. Credential
@@ -102,10 +107,10 @@ export async function runStatus({
     log(`${WARN} Còn dấu vết bản cài npx cũ — dọn bằng: gdrive uninstall --purge`);
   }
 
-  const pluginConfigFiles = listPluginConfigFiles(home, env);
+  const pluginConfigFiles = listConfigFiles(home, env);
   if (pluginConfigFiles.length > 1) {
     const active = cfgWithSource?.path;
-    log(`${WARN} Có ${pluginConfigFiles.length} config plugin chứa private key trên đĩa.`);
+    log(`${WARN} Có ${pluginConfigFiles.length} file config chứa private key trên đĩa.`);
     for (const file of pluginConfigFiles) {
       log(`     ${file === active ? 'ĐANG dùng' : 'bản thừa'}: ${file}`);
     }

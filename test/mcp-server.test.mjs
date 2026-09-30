@@ -11,15 +11,32 @@ import { test } from 'node:test';
 
 import { buildTools } from '../src/tools.mjs';
 
-const SERVER = join(dirname(dirname(fileURLToPath(import.meta.url))), 'server', 'index.mjs');
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const SERVER = join(ROOT, 'server', 'index.mjs');
+const CLI = join(ROOT, 'bin', 'cli.mjs');
+
+/**
+ * Env của tiến trình con: HOME tạm rỗng, và mọi biến trỏ tới thư mục config đều bị ghim vào
+ * HOME tạm — server không được đọc trúng cấu hình thật của máy chạy test.
+ */
+function sandboxEnv(home, env = {}) {
+  return {
+    ...process.env,
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: join(home, 'AppData', 'Roaming'),
+    XDG_CONFIG_HOME: join(home, '.config'),
+    GDRIVE_CONFIG_DIR: '',
+    CLAUDE_PLUGIN_DATA: '',
+    ...env,
+  };
+}
 
 /** Gửi loạt frame vào server, gom frame trả về (theo dòng) rồi đóng stdin. */
-function talk(frames, { env = {} } = {}) {
+function talk(frames, { env = {}, args = [SERVER], home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-')) } = {}) {
   return new Promise((resolve, reject) => {
-    const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
-    const child = spawn(process.execPath, [SERVER], {
-      // HOME tạm rỗng: server không được đọc trúng cấu hình thật của máy chạy test.
-      env: { ...process.env, HOME: home, USERPROFILE: home, ...env },
+    const child = spawn(process.execPath, args, {
+      env: sandboxEnv(home, env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let out = '';
@@ -90,7 +107,7 @@ function writeBrokenConfig(file) {
 
 function startServer({ home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-live-')), env = {}, nodeArgs = [] } = {}) {
   const child = spawn(process.execPath, [...nodeArgs, SERVER], {
-    env: { ...process.env, HOME: home, USERPROFILE: home, ...env },
+    env: sandboxEnv(home, env),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const msgs = [];
@@ -166,6 +183,40 @@ test('handshake: initialize → capabilities.tools + serverInfo', async () => {
   assert.deepEqual(msgs[0].result.capabilities, { tools: { listChanged: true } });
   assert.equal(msgs[0].result.serverInfo.name, 'gdrive');
   assert.equal(msgs[0].result.protocolVersion, '2025-06-18', 'echo lại version của client');
+});
+
+test('initialize trả instructions ngắn, trung lập (không dính biến riêng của Claude)', async () => {
+  const { msgs } = await talk([INIT]);
+  const { instructions } = msgs[0].result;
+  assert.equal(typeof instructions, 'string');
+  assert.match(instructions, /gdrive_sheet_read/);
+  assert.doesNotMatch(instructions, /CLAUDE_PLUGIN_ROOT|\/gdrive-setup/);
+  assert.ok(Buffer.byteLength(instructions) < 1500, `instructions quá dài: ${Buffer.byteLength(instructions)} byte`);
+});
+
+test('`gdrive mcp`: CLI chạy server, trả lời tools/list và thoát 0 khi stdin đóng', async () => {
+  const { msgs, code } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/list' }], { args: [CLI, 'mcp'] });
+  assert.equal(code, 0);
+  assert.equal(msgs.find((m) => m.id === 0).result.serverInfo.name, 'gdrive');
+  const names = msgs.find((m) => m.id === 1).result.tools.map((t) => t.name);
+  assert.ok(names.includes('gdrive_sheet_read'));
+});
+
+test('server đọc config ở thư mục trung lập (máy không có plugin Claude)', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
+  // Trùng với sandboxEnv: Windows đọc APPDATA, còn lại đọc XDG_CONFIG_HOME.
+  const dir = process.platform === 'win32'
+    ? join(home, 'AppData', 'Roaming', 'gdrive-cli')
+    : join(home, '.config', 'gdrive-cli');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({
+    clientEmail: 'sa@proj.iam.gserviceaccount.com',
+    privateKey: 'not-a-real-key',
+    mode: 'readwrite',
+  }));
+  const { msgs } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/list' }], { home });
+  const names = msgs.find((m) => m.id === 1).result.tools.map((t) => t.name);
+  assert.ok(names.includes('gdrive_sheet_write'), 'readwrite từ config trung lập phải mở tool ghi');
 });
 
 test('notification KHÔNG được trả lời', async () => {
@@ -412,7 +463,7 @@ test('stdout backpressure: đóng stdin ngay vẫn flush xong frame lớn trư�
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-backpressure-'));
   const t0 = Date.now();
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, HOME: home, USERPROFILE: home },
+    env: sandboxEnv(home),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   let out = '';

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // gdrive — đọc/ghi Google Drive, Sheets, Docs, Slides bằng service account.
 //
-// stdout = kết quả, stderr = chẩn đoán/lỗi, exit code ≠ 0 khi hỏng — để chỗ gọi (Claude,
+// stdout = kết quả, stderr = chẩn đoán/lỗi, exit code ≠ 0 khi hỏng — để chỗ gọi (client AI,
 // script) phân biệt được.
 
 import { realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -78,6 +78,9 @@ const HELP = `gdrive — Google Drive / Sheets / Docs / Slides bằng service ac
   gdrive init [--sa-json <file>|--adc] [--mode readonly|readwrite] [--yes] [--no-test] [--no-skill]
   gdrive status
   gdrive uninstall [--purge]
+
+  gdrive mcp
+        Chạy MCP server (stdio) — trỏ Codex, Copilot, Cursor, Kiro… vào lệnh này.
 
 Ghi chú:
   • Mọi lệnh nhận thẳng URL dán vào — tự bóc file id và gid.
@@ -372,6 +375,11 @@ async function main() {
     case 'init': return runInit(flags);
     case 'status': return runStatus({});
     case 'uninstall': return runUninstall(flags);
+    case 'mcp':
+      // Server tự lo vòng đời: đóng stdin thì drain rồi tự thoát. main KHÔNG được resolve,
+      // không thì process.exit bên dưới giết server ngay sau handshake.
+      await import('../server/index.mjs');
+      return new Promise(() => {});
     default:
       err(`Không biết lệnh "${command}".\n\n${HELP}`);
       return false;

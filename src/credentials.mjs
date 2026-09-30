@@ -215,8 +215,8 @@ export function resolveCredentials({
 
   throw new CredentialError(
     'Không tìm thấy credential Google. Chọn một trong các cách sau:\n' +
-      '  • Trong Claude Code: chạy skill /gdrive-setup\n' +
-      '  • Hoặc tay:     gdrive init --sa-json <đường-dẫn-key.json>\n' +
+      '  • Chạy:         gdrive init --sa-json <đường-dẫn-key.json>\n' +
+      '                  (trong Claude Code có thể dùng skill /gdrive-setup)\n' +
       '  • Đặt env:      GOOGLE_SERVICE_ACCOUNT_JSON=<nội dung file key JSON>\n' +
       '  • Hoặc cặp:     DRIVE_SERVICE_ACCOUNT_EMAIL + DRIVE_PRIVATE_KEY\n' +
       '  • Hoặc file:    GOOGLE_APPLICATION_CREDENTIALS=/đường/dẫn/key.json\n' +

@@ -8,7 +8,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { legacyConfigPath, listPluginConfigFiles } from './config.mjs';
+import { legacyConfigPath, listConfigFiles } from './config.mjs';
 
 const RULE_MARKER = 'gdrive/bin/cli.mjs';
 
@@ -60,16 +60,17 @@ export function runUninstall(flags = {}, { home = homedir(), log = console.log, 
     found = true;
   }
 
-  const pluginConfigFiles = listPluginConfigFiles(home, env);
+  const pluginConfigFiles = listConfigFiles(home, env);
   if (pluginConfigFiles.length > 0) {
     if (flags.purge) {
       for (const file of pluginConfigFiles) {
         rmSync(file, { force: true });
-        log(`✅ Đã xoá config plugin ${file}`);
+        log(`✅ Đã xoá config ${file}`);
       }
+      log('⚠️  Mọi client AI (Claude, Codex, Cursor…) dùng credential này sẽ mất truy cập tới khi chạy lại `gdrive init`.');
       log('⚠️  Xoá file không thu hồi được key đã lộ. Biện pháp thật là thu hồi/xoay key trong GCP Console.');
     } else {
-      log('ℹ️  Giữ lại config plugin sau (mỗi file chứa một private key trên đĩa):');
+      log('ℹ️  Giữ lại config sau (mỗi file chứa một private key trên đĩa):');
       for (const file of pluginConfigFiles) log(`   - ${file}`);
       log('   Xoá luôn: thêm --purge');
     }
@@ -77,6 +78,6 @@ export function runUninstall(flags = {}, { home = homedir(), log = console.log, 
   }
 
   if (!found) log('Không thấy tàn dư bản cài cũ nào.');
-  log('\nGỡ plugin: claude plugin uninstall gdrive@gdrive-cli\n');
+  log('\nGỡ plugin Claude Code: claude plugin uninstall gdrive@gdrive-cli\n');
   return true;
 }
