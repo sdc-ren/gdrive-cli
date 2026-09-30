@@ -248,7 +248,7 @@ test('--skill: cài SKILL.md chuẩn vào ~/.agents/skills (Kiro: ~/.kiro/skills
   await sandbox(async (ctx) => {
     const cursor = installClient('cursor', { ...ctx, skill: true });
     assert.equal(cursor.skill.file, join(ctx.home, '.agents', 'skills', 'gdrive', 'SKILL.md'));
-    assert.match(readFileSync(cursor.skill.file, 'utf8'), /^---\nname: gdrive\n/);
+    assert.match(readFileSync(cursor.skill.file, 'utf8'), /^---\r?\nname: gdrive\r?\n/);
     const kiro = installClient('kiro', { ...ctx, skill: true });
     assert.equal(kiro.skill.file, join(ctx.home, '.kiro', 'skills', 'gdrive', 'SKILL.md'));
 
