@@ -1,8 +1,8 @@
 // Cấu hình credential cho plugin.
 //
-// Từ v0.2 việc CÀI ĐẶT do cơ chế plugin của Claude Code lo (`/plugin install`), nên file
-// này chỉ còn một việc: xác thực rồi ghi credential vào thư mục data của plugin.
-// Không copy code, không cài skill, không sửa settings.json — MCP tool không cần allow-rule.
+// Việc đăng ký MCP server do client AI lo (plugin Claude Code, hoặc config MCP của Codex,
+// Copilot, Cursor, Kiro…), nên file này chỉ còn một việc: xác thực rồi ghi credential vào
+// đúng MỘT file config (xem writeConfig). Không copy code, không cài skill, không sửa settings.json.
 
 import { createPrivateKey } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { createInterface } from 'node:readline/promises';
 
 import { about } from './drive.mjs';
 import { createClient } from './client.mjs';
-import { hasLegacyInstall, pluginDataDir, readConfig, writeConfig } from './config.mjs';
+import { hasLegacyInstall, readConfig, writeConfig } from './config.mjs';
 
 const GCP_GUIDE = `
   Tạo service account (khoảng 5 phút, làm một lần):
@@ -131,7 +131,7 @@ export async function runInit(
     } else {
       log(`✅ Đã ghi cấu hình → ${cfgFile} (chmod 600)`);
     }
-    log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi Claude' : ''}`);
+    log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi client AI' : ''}`);
 
     if (!flags['no-test']) {
       log('\n🔎 Kiểm tra kết nối...');
@@ -161,7 +161,7 @@ export async function runInit(
       );
     }
 
-    log(`\nXong. Dữ liệu plugin: ${pluginDataDir(env, home)}`);
+    log('\nXong.');
     log('MCP server sẽ phát hiện cấu hình mới ở request kế tiếp; nếu client không refresh tool list thì mở session mới.\n');
     return true;
   } finally {

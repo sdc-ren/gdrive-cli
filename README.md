@@ -103,12 +103,15 @@ Tìm theo thứ tự, dừng ở cái đầu tiên có:
 3. `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY`
 4. `DRIVE_SERVICE_ACCOUNT_EMAIL` + `DRIVE_PRIVATE_KEY`
 5. `GOOGLE_APPLICATION_CREDENTIALS` (đường dẫn file key)
-6. Config của plugin — `~/.claude/plugins/data/…/config.json` (chmod 600); rơi về
-   `~/.claude/gdrive.json` nếu bạn từng cài kiểu cũ
+6. File config (chmod 600, do `gdrive init` ghi), dò lần lượt:
+   `$GDRIVE_CONFIG_DIR` → thư mục data plugin Claude (`~/.claude/plugins/data/gdrive*`) →
+   thư mục chung (`~/.config/gdrive-cli`, Windows `%APPDATA%\gdrive-cli`) →
+   `~/.claude/gdrive.json` nếu bạn từng cài kiểu cũ. Máy có cả plugin Claude lẫn client AI
+   khác thì mọi bên dùng chung một file — `init` ghi đè file đang dùng, không tạo bản thứ hai.
 7. ADC của gcloud — **opt-in**, chỉ chạy sau `init --adc`
 8. `gcloud auth print-access-token` — **opt-in**, chỉ chạy sau `init --adc`
 
-Env đứng trước file config là cố ý: CI không có `~/.claude` nhưng có secret trong env.
+Env đứng trước file config là cố ý: CI không có file config nhưng có secret trong env.
 ADC/gcloud bị tắt mặc định vì chúng chạy bằng danh tính cá nhân của người dùng, không phải
 service account riêng của plugin.
 

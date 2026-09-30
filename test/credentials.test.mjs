@@ -417,34 +417,35 @@ test('status: nhiều config plugin thì nêu file đang dùng và file thừa',
     const logs = [];
     await runStatus({ home, env: {}, log: (line) => logs.push(line) });
     const output = logs.join('\n');
-    assert.match(output, /config plugin chứa private key/);
+    assert.match(output, /file config chứa private key/);
     assert.match(output, new RegExp(`ĐANG dùng: ${reLiteral(active)}`));
     assert.match(output, new RegExp(`bản thừa: ${reLiteral(stale)}`));
   });
 });
 
-test('status: active config trong CLAUDE_PLUGIN_DATA ngoài gdrive* không bị gắn nhãn bản thừa', async () => {
+test('status: CLAUDE_PLUGIN_DATA của plugin khác bị bỏ qua và được cảnh báo', async () => {
   await sandbox(async ({ home }) => {
     const root = join(home, '.claude', 'plugins', 'data');
-    const activeDir = join(root, 'custom-data-name');
-    const staleDir = join(root, 'gdrive-inline');
-    const active = join(activeDir, 'config.json');
-    const stale = join(staleDir, 'config.json');
-    mkdirSync(activeDir, { recursive: true });
-    mkdirSync(staleDir, { recursive: true });
-    writeFileSync(active, JSON.stringify({ clientEmail: 'active@x.com', privateKey: PEM, mode: 'readonly' }));
-    writeFileSync(stale, JSON.stringify({ clientEmail: 'stale@x.com', privateKey: PEM, mode: 'readonly' }));
+    const foreignDir = join(root, 'codex-openai-codex');
+    const ownDir = join(root, 'gdrive-inline');
+    const foreignFile = join(foreignDir, 'config.json');
+    const own = join(ownDir, 'config.json');
+    mkdirSync(foreignDir, { recursive: true });
+    mkdirSync(ownDir, { recursive: true });
+    writeFileSync(foreignFile, JSON.stringify({ clientEmail: 'foreign@x.com', privateKey: PEM, mode: 'readonly' }));
+    writeFileSync(own, JSON.stringify({ clientEmail: 'own@x.com', privateKey: PEM, mode: 'readonly' }));
     const logs = [];
 
     await runStatus({
       home,
-      env: { CLAUDE_PLUGIN_DATA: activeDir },
+      env: { CLAUDE_PLUGIN_DATA: foreignDir },
       log: (line) => logs.push(line),
     });
 
     const output = logs.join('\n');
-    assert.match(output, new RegExp(`ĐANG dùng: ${reLiteral(active)}`));
-    assert.match(output, new RegExp(`bản thừa: ${reLiteral(stale)}`));
+    assert.match(output, new RegExp(`Cấu hình: ${reLiteral(own)}`));
+    assert.match(output, /Bỏ qua CLAUDE_PLUGIN_DATA=.*plugin khác/);
+    assert.doesNotMatch(output, new RegExp(reLiteral(foreignFile)), 'file của plugin khác không được coi là config');
   });
 });
 

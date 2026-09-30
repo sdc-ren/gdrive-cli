@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// MCP server (stdio) cho gdrive-cli — chạy trong Claude Code plugin.
+// MCP server (stdio) cho gdrive-cli — client MCP nào cũng dùng được: plugin Claude Code,
+// Codex, Copilot, Cursor, Kiro… (chạy trực tiếp hoặc qua `gdrive mcp`).
 //
 // ⚠️ LUẬT CỨNG: stdout CHỈ được chứa frame JSON-RPC. Một dòng console.log lạc là hỏng
-// stream, và Claude Code chỉ báo "lỗi kết nối" mơ hồ, rất tốn công truy. Chuyển hướng
+// stream, và client chỉ báo "lỗi kết nối" mơ hồ, rất tốn công truy. Chuyển hướng
 // console.log sang stderr NGAY dòng đầu, trước mọi import có thể lỡ in ra.
 console.log = console.error;
 console.info = console.error;
@@ -34,6 +35,7 @@ const { homedir } = await import('node:os');
 const { createClient } = await import('../src/client.mjs');
 const { configSearchPaths, readConfigWithSource } = await import('../src/config.mjs');
 const { buildTools } = await import('../src/tools.mjs');
+const { INSTRUCTIONS } = await import('../src/instructions.mjs');
 
 // Phiên bản protocol ta biết. Client gửi phiên bản khác thì echo lại của client —
 // stdio MCP tương thích ngược tốt, cãi nhau về version chỉ làm hỏng handshake.
@@ -136,6 +138,7 @@ async function handle(msg) {
         protocolVersion: params?.protocolVersion ?? FALLBACK_PROTOCOL,
         capabilities: { tools: { listChanged: true } },
         serverInfo: SERVER_INFO,
+        instructions: INSTRUCTIONS,
       });
 
     // Notification: KHÔNG có id, KHÔNG được trả lời.
@@ -188,7 +191,10 @@ function explain(err, snapshot = state) {
     );
   }
   if (/không tìm thấy credential|CredentialError/i.test(msg)) {
-    return `${msg}\n\nChạy /gdrive-setup để cấu hình service account.`;
+    return (
+      `${msg}\n\nBảo người dùng chạy: gdrive init --sa-json <đường-dẫn-key.json> ` +
+      '(trong Claude Code: skill /gdrive-setup). Không hỏi nội dung file key.'
+    );
   }
   if (err?.code === 'NOT_SHARED_DRIVE' || /storageQuotaExceeded/i.test(msg)) {
     return `${msg}\n\nService account không có dung lượng My Drive — đích upload phải là Shared Drive.`;
