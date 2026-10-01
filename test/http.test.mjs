@@ -230,3 +230,24 @@ test('createLimiter: không quá N việc chạy cùng lúc', async () => {
   assert.equal(out.length, 5);
   assert.equal(peak, 2);
 });
+
+test('UncertainWriteError KHÔNG bị coi là tạm thời dù message chứa lỗi mạng', () => {
+  const err = new UncertainWriteError(new TypeError('fetch failed'));
+  assert.equal(isTransient(err), false);
+  assert.equal(isRetryable(err, { idempotent: true }), false);
+  assert.equal(isRetryable(err, { idempotent: false }), false);
+});
+
+test('timeout khi đang đọc body cũng thành TimeoutError (cả nhánh lỗi lẫn nhánh thành công)', async () => {
+  const abort = () => Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+  const okSlow = async () => ({ ...res({ body: '{}' }), text: abort });
+  await assert.rejects(
+    request({ url: 'https://x.test', fetchImpl: okSlow }),
+    (e) => e instanceof TimeoutError && e.code === 'ETIMEDOUT',
+  );
+  const errSlow = async () => ({ ...res({ ok: false, status: 500 }), text: abort });
+  await assert.rejects(
+    request({ url: 'https://x.test', fetchImpl: errSlow }),
+    (e) => e instanceof TimeoutError && e.code === 'ETIMEDOUT',
+  );
+});

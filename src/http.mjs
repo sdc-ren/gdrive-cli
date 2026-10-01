@@ -68,6 +68,9 @@ export function isRateLimited(error) {
 }
 
 export function isTransient(error) {
+  // Message của UncertainWriteError chứa message gốc ("fetch failed"...) — không được để
+  // tầng retry bên ngoài coi là tạm thời rồi gửi lại một request có thể đã ghi.
+  if (error?.code === 'UNCERTAIN_WRITE' || error instanceof UncertainWriteError) return false;
   if (isRateLimited(error)) return true;
   if (error?.code === 'ETIMEDOUT' || error?.name === 'TimeoutError') return true;
   if (TRANSIENT_STATUS.has(Number(error?.code ?? error?.response?.status ?? NaN))) return true;
@@ -211,9 +214,6 @@ export async function request({
       await sleepImpl(retryDelayMs(attempt, error?.retryAfter ?? null, { baseDelayMs, maxDelayMs, random }));
     }
   }
-  if (!idempotent && lastError && !REJECTED_STATUS.has(Number(lastError?.code)) && !isRateLimited(lastError)) {
-    throw new UncertainWriteError(lastError);
-  }
   throw lastError;
 }
 
@@ -228,17 +228,26 @@ async function once({ url, method, token, body, headers, responseType, timeoutMs
     finalHeaders['content-type'] ??= 'application/json; charset=UTF-8';
   }
 
-  let res;
-  try {
-    res = await fetchImpl(url, { method, headers: finalHeaders, body: payload, signal: AbortSignal.timeout(timeoutMs) });
-  } catch (err) {
-    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') throw new TimeoutError(url, method, timeoutMs);
-    throw err;
-  }
+  // Signal timeout huỷ cả lúc đọc body, nên mọi bước await đều phải đổi abort thành TimeoutError.
+  const guard = async (fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') throw new TimeoutError(url, method, timeoutMs);
+      throw err;
+    }
+  };
+
+  const res = await guard(() =>
+    fetchImpl(url, { method, headers: finalHeaders, body: payload, signal: AbortSignal.timeout(timeoutMs) }),
+  );
 
   if (!res.ok) {
     // Lỗi của Google luôn là JSON, nhưng 5xx từ load balancer có thể là HTML.
-    const text = await res.text().catch(() => '');
+    const text = await guard(() => res.text()).catch((err) => {
+      if (err instanceof TimeoutError) throw err;
+      return '';
+    });
     let parsed = text;
     try {
       parsed = JSON.parse(text);
@@ -250,8 +259,8 @@ async function once({ url, method, token, body, headers, responseType, timeoutMs
 
   // 'raw' cho những chỗ cần header (upload resumable đọc Location).
   if (responseType === 'raw') return res;
-  if (responseType === 'buffer') return Buffer.from(await res.arrayBuffer());
-  if (responseType === 'text') return res.text();
-  const text = await res.text();
+  if (responseType === 'buffer') return Buffer.from(await guard(() => res.arrayBuffer()));
+  if (responseType === 'text') return guard(() => res.text());
+  const text = await guard(() => res.text());
   return text ? JSON.parse(text) : {};
 }
