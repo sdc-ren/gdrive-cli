@@ -16,25 +16,11 @@ import {
   readConfigWithSource,
 } from './config.mjs';
 import { resolveCredentials, scopesForMode } from './credentials.mjs';
+import { nodeOk } from './node-version.mjs';
 
 const OK = '✅';
 const WARN = '⚠️ ';
 const BAD = '❌';
-const MIN_NODE = { major: 18, minor: 17, patch: 0 };
-
-function parseNodeVersion(version) {
-  const [, major = '0', minor = '0', patch = '0'] = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version)) ?? [];
-  return { major: Number(major), minor: Number(minor), patch: Number(patch) };
-}
-
-function nodeOk(version) {
-  const got = parseNodeVersion(version);
-  return (
-    got.major > MIN_NODE.major ||
-    (got.major === MIN_NODE.major && got.minor > MIN_NODE.minor) ||
-    (got.major === MIN_NODE.major && got.minor === MIN_NODE.minor && got.patch >= MIN_NODE.patch)
-  );
-}
 
 export async function runStatus({
   home = homedir(),

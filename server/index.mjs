@@ -8,21 +8,9 @@
 console.log = console.error;
 console.info = console.error;
 
-const MIN_NODE = { major: 18, minor: 17, patch: 0 };
-
-function parseNodeVersion(version) {
-  const [, major = '0', minor = '0', patch = '0'] = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version)) ?? [];
-  return { major: Number(major), minor: Number(minor), patch: Number(patch) };
-}
-
-function nodeOk(version) {
-  const got = parseNodeVersion(version);
-  return (
-    got.major > MIN_NODE.major ||
-    (got.major === MIN_NODE.major && got.minor > MIN_NODE.minor) ||
-    (got.major === MIN_NODE.major && got.minor === MIN_NODE.minor && got.patch >= MIN_NODE.patch)
-  );
-}
+// Import tĩnh được hoist lên trước hai dòng trên, nhưng node-version.mjs không in gì và
+// không dùng cú pháp mới hơn Node 18 — nên vẫn an toàn cho cả stdout lẫn kiểm tra version.
+import { nodeOk } from '../src/node-version.mjs';
 
 if (!nodeOk(process.version)) {
   console.error(`[gdrive-mcp] Cần Node >= 18.17, hiện tại ${process.version}.`);
