@@ -52,3 +52,14 @@ export async function resolveCliTarget({ client, input, write = false, folders =
   if (write) await scope.assertWrite(fileId);
   return { id: fileId, gid };
 }
+
+/**
+ * Đích cho `gdrive ls`. Có folders mà không target → `{ roots: folders }` (in danh sách folder
+ * được phép, không gọi Drive — nếu không, ls trần sẽ liệt kê mọi thứ service account thấy).
+ * Còn lại → `{ folderId }` (null = mọi thứ, chỉ khi chưa có danh sách folder).
+ */
+export async function resolveCliListTarget({ client, target, folders = [], createMeta = createMetaStore }) {
+  if (!target) return folders.length ? { roots: folders } : { folderId: null };
+  const { id } = await resolveCliTarget({ client, input: target, folders, createMeta });
+  return { folderId: id };
+}

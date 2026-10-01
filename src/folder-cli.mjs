@@ -23,7 +23,7 @@ function defaultGetFile(home, env) {
   return (id) => getFile(client, id, { fields: 'id,name,mimeType,driveId' });
 }
 
-export async function runFolder(flags = {}, { home = homedir(), env = process.env, log = console.log, getFile: fetchFile = null } = {}) {
+export async function runFolder(flags = { _: [] }, { home = homedir(), env = process.env, log = console.log, getFile: fetchFile = null } = {}) {
   const sub = flags._[1];
   const arg = flags._[2];
   const found = readConfigWithSource(home, env);

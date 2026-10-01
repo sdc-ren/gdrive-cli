@@ -9,7 +9,7 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { runClientUninstall, runInstall } from '../src/clients.mjs';
-import { resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
+import { resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
 import { createClient } from '../src/client.mjs';
 import { readConfig } from '../src/config.mjs';
 import {
@@ -24,11 +24,12 @@ import { runFolder } from '../src/folder-cli.mjs';
 import { loadFolders } from '../src/folders.mjs';
 import { KIND as FORMAT_KIND, MIME } from '../src/formats.mjs';
 import { runInit } from '../src/init.mjs';
+import { renderFolders } from '../src/render.mjs';
 import { batchUpdateValues, getMetadata, pickSheet } from '../src/sheets.mjs';
 import { runStatus } from '../src/status.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
 import { inspect, readDocument, readTable } from '../src/read-document.mjs';
-import { buildA1, parseGoogleUrl } from '../src/url.mjs';
+import { buildA1 } from '../src/url.mjs';
 
 const VALUE_FLAGS = new Set([
   'sheet', 'range', 'max-rows', 'max-chars', 'format', 'out', 'folder', 'name-contains',
@@ -213,8 +214,8 @@ async function cmdDoc(flags) {
 }
 
 async function cmdInfo(flags) {
-  const { id } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
   const client = clientFor(flags);
+  const { id } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
   const { meta, kind, readAs, tabular, note } = await inspect(client, id);
 
   const payload = {
@@ -250,7 +251,14 @@ async function cmdInfo(flags) {
 async function cmdLs(flags) {
   const target = flags._[1];
   const client = clientFor(flags);
-  const folderId = target ? (await scopedTarget(client, target)).id : null;
+  const listTarget = await resolveCliListTarget({ client, target, folders: cliFolders() });
+  if (listTarget.roots) {
+    // Có danh sách folder mà không chỉ đích: in các folder được phép, không liệt kê cả Drive.
+    if (flags.json) json({ folders: listTarget.roots });
+    else out(renderFolders(listTarget.roots));
+    return true;
+  }
+  const { folderId } = listTarget;
   const { files, nextPageToken } = await listFiles(client, {
     folderId,
     nameContains: flags['name-contains'] ?? null,
@@ -276,7 +284,7 @@ async function cmdLs(flags) {
 }
 
 async function cmdGet(flags) {
-  const { id } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
+  const input = requireArg(flags, 1, '<url>');
   const dest = flags.out;
   if (!dest) {
     const e = new Error('Thiếu --out <đường-dẫn>.');
@@ -284,6 +292,7 @@ async function cmdGet(flags) {
     throw e;
   }
   const client = clientFor(flags);
+  const { id } = await scopedTarget(client, input);
   const { meta, kind } = await inspect(client, id);
 
   // File native của Google không tải thẳng được — phải export.

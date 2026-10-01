@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
+import { resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
 
 const FOLDER = 'application/vnd.google-apps.folder';
 const SHEET = 'application/vnd.google-apps.spreadsheet';
@@ -82,4 +82,31 @@ test('mode: có folders thì bỏ qua cfg.mode, suy từ access; không có fold
   );
   // --mode tường minh vẫn thắng.
   assert.equal(resolveCliMode({ flags: { mode: 'readwrite' }, cfg: null, folders: readOnly }), 'readwrite');
+});
+
+test('ls: có folders mà không target → trả danh sách folder, không gọi API', async () => {
+  const { calls, createMeta } = fakeMetaFactory();
+  for (const target of [undefined, null, '']) {
+    assert.deepEqual(await resolveCliListTarget({ client: null, target, folders: FOLDERS, createMeta }), { roots: FOLDERS });
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('ls: có folders và target → folderId đã kiểm phạm vi; target ngoài → OUT_OF_SCOPE', async () => {
+  const { createMeta } = fakeMetaFactory();
+  assert.deepEqual(await resolveCliListTarget({ client: null, target: 'rootRead', folders: FOLDERS, createMeta }), { folderId: 'rootRead' });
+  await assert.rejects(
+    resolveCliListTarget({ client: null, target: 'outsideFolder', folders: FOLDERS, createMeta }),
+    (e) => e.code === 'OUT_OF_SCOPE',
+  );
+});
+
+test('ls: không folders → hành vi cũ (không target = null, có target = id bóc từ URL), không gọi API', async () => {
+  const { calls, createMeta } = fakeMetaFactory();
+  assert.deepEqual(await resolveCliListTarget({ client: null, target: undefined, folders: [], createMeta }), { folderId: null });
+  assert.deepEqual(
+    await resolveCliListTarget({ client: null, target: 'https://drive.google.com/drive/folders/1AbCdEfGhIjK', folders: [], createMeta }),
+    { folderId: '1AbCdEfGhIjK' },
+  );
+  assert.deepEqual(calls, []);
 });
