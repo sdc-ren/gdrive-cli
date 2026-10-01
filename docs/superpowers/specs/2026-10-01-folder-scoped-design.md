@@ -234,14 +234,18 @@ Sửa trong `src/http.mjs` và `src/client.mjs`.
 Người dùng tạo một folder thử trong My Drive, share Editor cho service account. Nếu có, thêm
 một folder trong Shared Drive. Chạy thử bằng script tạm, ghi lại kết quả vào spec này:
 
-| Thao tác | My Drive | Shared Drive |
+| Thao tác | My Drive (đo 2026-10-01, folder share Editor) | Shared Drive |
 |---|---|---|
-| Tạo folder con | ? | ? |
-| Tạo Google Doc từ markdown | ? | ? |
-| Tạo Google Sheet từ CSV | ? | ? |
-| Đổi tên file của người dùng | ? | ? |
-| Di chuyển file giữa hai folder được share | ? | ? |
-| `values.append`, `values.batchUpdate` | ? | ? |
+| Tạo folder con | OK (folder không tốn quota) | chưa đo |
+| Tạo Google Doc từ markdown | FAIL 403 `storageQuotaExceeded` | chưa đo |
+| Tạo Google Sheet từ CSV | FAIL 403 `storageQuotaExceeded` | chưa đo |
+| Đổi tên file của người dùng | OK (thử trên folder) | chưa đo |
+| Di chuyển file giữa hai folder được share | OK (`addParents`/`removeParents`) | chưa đo |
+| `values.append`, `values.batchUpdate` | chưa đo: cần một Google Sheet có sẵn do người dùng tạo trong folder | chưa đo |
+
+Hệ quả cho thiết kế: `drive_create` với `kind: folder` chạy được ở mọi nơi; `kind: doc|sheet`
+kiểm tra `driveId` của folder đích trước, không có thì trả lỗi "cần Shared Drive" ngay, không
+gọi API. `drive_move` không bị giới hạn bởi quota.
 
 Thao tác nào thất bại ở My Drive thì tool trả lỗi giải thích cần Shared Drive, và README ghi
 rõ trong mục giới hạn. Không có thao tác nào bị bỏ khỏi thiết kế chỉ vì My Drive không hỗ trợ.
