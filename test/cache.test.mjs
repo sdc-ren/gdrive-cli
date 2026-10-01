@@ -28,3 +28,9 @@ test('TTL cache: loader lỗi không để lại entry hỏng; max entries bỏ 
   cache.set('z', 1);
   assert.equal(cache.get('x'), undefined, 'x là entry cũ nhất, bị đẩy ra');
 });
+
+test('TTL cache: getOrLoad dùng được sau khi destructure', async () => {
+  const { getOrLoad, get } = createTtlCache({ ttlMs: 1000 });
+  assert.equal(await getOrLoad('k', async () => 3), 3);
+  assert.equal(get('k'), 3);
+});

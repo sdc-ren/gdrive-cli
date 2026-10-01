@@ -14,13 +14,15 @@ export function createTtlCache({ ttlMs, now = Date.now, max = 2000 } = {}) {
     while (store.size > max) store.delete(store.keys().next().value);
   }
 
+  function get(key) {
+    const entry = store.get(key);
+    if (alive(entry)) return entry.value;
+    store.delete(key);
+    return undefined;
+  }
+
   return {
-    get(key) {
-      const entry = store.get(key);
-      if (alive(entry)) return entry.value;
-      store.delete(key);
-      return undefined;
-    },
+    get,
     set,
     delete: (key) => {
       store.delete(key);
@@ -31,7 +33,7 @@ export function createTtlCache({ ttlMs, now = Date.now, max = 2000 } = {}) {
       inflight.clear();
     },
     async getOrLoad(key, loader) {
-      const hit = this.get(key);
+      const hit = get(key);
       if (hit !== undefined) return hit;
       if (inflight.has(key)) return inflight.get(key);
       const p = (async () => {

@@ -3,6 +3,11 @@
 //
 // Shortcut được coi là file ĐÍCH của nó: shortcut nằm trong folder được phép nhưng trỏ ra
 // ngoài vẫn bị từ chối — nếu không, một shortcut do ai đó tạo là đủ để đọc file lạ.
+//
+// Một instance scope là BẤT BIẾN với danh sách folder truyền vào: `byId/byName` chụp lúc tạo,
+// `invalidateAll()` chỉ xoá cache tổ tiên, không nạp lại danh sách. Đổi danh sách folder thì
+// tạo scope mới: MCP server dựng lại tools/scope khi file config đổi (reload theo fingerprint),
+// CLI tạo scope mới cho mỗi lệnh.
 
 import { createTtlCache } from './cache.mjs';
 import { FOLDER_NAME_RE } from './folders.mjs';
@@ -11,6 +16,8 @@ import { parseGoogleUrl } from './url.mjs';
 const MIME_FOLDER = 'application/vnd.google-apps.folder';
 const MIME_SHORTCUT = 'application/vnd.google-apps.shortcut';
 const MAX_DEPTH = 32;
+// Kết quả "bị cắt" (gặp vòng hoặc quá MAX_DEPTH): chưa xét đủ nên KHÔNG được cache là null.
+const TRUNCATED = Symbol('truncated');
 const TTL_MS = 10 * 60_000;
 
 const isNotFound = (err) => err?.status === 404 || err?.code === 404;
@@ -35,35 +42,53 @@ export function createScope({ folders, meta, now = Date.now, ttlMs = TTL_MS }) {
     }
   }
 
-  /** Folder gốc chứa `id`, hoặc null. Cache cho mọi id đi qua trên đường lên. */
-  async function rootOf(id, depth = 0, seen = new Set()) {
+  /** Folder gốc chứa `id`, hoặc null. */
+  async function rootOf(id) {
+    const root = await walk(id, 0, new Set());
+    return root === TRUNCATED ? null : root;
+  }
+
+  /**
+   * Lần theo parents. Trả root | null | TRUNCATED. Chỉ cache kết quả đã xét đủ: root tìm thấy,
+   * hoặc null khi MỌI parent đều xét xong mà không dẫn tới folder được phép. Nếu có nhánh bị
+   * cắt thì không cache — tránh đánh dấu sai một node thật ra thuộc phạm vi qua đường khác.
+   */
+  async function walk(id, depth, seen) {
     if (byId.has(id)) return byId.get(id);
     const cached = roots.get(id);
     if (cached !== undefined) return cached;
-    if (depth >= MAX_DEPTH || seen.has(id)) return null;
+    if (depth >= MAX_DEPTH || seen.has(id)) return TRUNCATED;
     seen.add(id);
 
     const m = await meta.file(id);
-    let root = null;
+    let truncated = false;
     for (const parent of m.parents ?? []) {
+      let r;
       try {
-        root = await rootOf(parent, depth + 1, seen);
+        r = await walk(parent, depth + 1, seen);
       } catch (err) {
         // Folder cha không truy cập được (404) chỉ có nghĩa nhánh đó không dẫn tới folder
         // được phép — vẫn xét các parent còn lại. Lỗi khác (mạng, 5xx) thì ném lên.
         if (!isNotFound(err)) throw err;
-        root = null;
+        r = null;
       }
-      if (root) break;
+      if (r === TRUNCATED) truncated = true;
+      else if (r) {
+        roots.set(id, r);
+        return r;
+      }
     }
-    roots.set(id, root);
-    return root;
+    if (truncated) return TRUNCATED;
+    roots.set(id, null);
+    return null;
   }
 
   async function resolveTarget(id) {
     let m = await meta.file(id);
-    if (m.mimeType === MIME_SHORTCUT && m.shortcutDetails?.targetId) {
-      m = await meta.file(m.shortcutDetails.targetId);
+    if (m.mimeType === MIME_SHORTCUT) {
+      const targetId = m.shortcutDetails?.targetId;
+      if (!targetId) throw new ScopeError('OUT_OF_SCOPE', `Shortcut không có đích: "${m.name}" không trỏ tới file nào đọc được.`);
+      m = await meta.file(targetId);
     }
     const root = await rootOf(m.id);
     if (!root) throw new ScopeError('OUT_OF_SCOPE', `Ngoài phạm vi: "${m.name}" không thuộc folder nào được phép (${names()}).`);
@@ -98,6 +123,10 @@ export function createScope({ folders, meta, now = Date.now, ttlMs = TTL_MS }) {
       return { ...(await resolveTarget(id)), gid };
     },
 
+    /**
+     * `fileId` phải là `fileId` do `resolve()` trả về: hàm này KHÔNG giải shortcut, truyền id
+     * của shortcut sẽ xét quyền theo vị trí shortcut chứ không theo file đích.
+     */
     async assertWrite(fileId) {
       requireFolders();
       const root = await rootOf(fileId);

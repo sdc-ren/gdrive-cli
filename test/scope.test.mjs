@@ -26,7 +26,20 @@ const TREE = {
   loopAAAAA: { name: 'la', mimeType: FOLDER, parents: ['loopBBBBB'] },
   loopBBBBB: { name: 'lb', mimeType: FOLDER, parents: ['loopAAAAA'] },
   ghostParent: { name: 'ghost', mimeType: SHEET, parents: ['khongTonTai', 'rootB'] },
+  allGhostParents: { name: 'ghost2', mimeType: SHEET, parents: ['khongTonTai', 'khongCoNua'] },
+  err500Parent: { name: 'e500', mimeType: SHEET, parents: ['loiServer', 'rootB'] },
+  brokenShortcut: { name: 'hong', mimeType: SHORTCUT, parents: ['rootA'] },
+  // Vòng có lối ra: cycA0001 → [cycB0001, rootA], cycB0001 → [cycA0001].
+  cycA0001: { name: 'ca', mimeType: FOLDER, parents: ['cycB0001', 'rootA'] },
+  cycB0001: { name: 'cb', mimeType: FOLDER, parents: ['cycA0001'] },
 };
+
+// Chuỗi 40 tầng: chainNode00 → chainNode01 → … → chainNode39 → rootA (sâu hơn MAX_DEPTH = 32).
+for (let i = 0; i < 40; i++) {
+  const id = `chainNode${String(i).padStart(2, '0')}`;
+  const parent = i === 39 ? 'rootA' : `chainNode${String(i + 1).padStart(2, '0')}`;
+  TREE[id] = { name: id, mimeType: FOLDER, parents: [parent] };
+}
 
 function fakeMeta() {
   const calls = [];
@@ -35,6 +48,7 @@ function fakeMeta() {
     async file(id) {
       calls.push(`file:${id}`);
       const m = TREE[id];
+      if (id === 'loiServer') { const e = new Error('server error'); e.code = 500; throw e; }
       if (!m) { const e = new Error('not found'); e.code = 404; throw e; }
       return { id, ...m };
     },
@@ -122,4 +136,32 @@ test('invalidateAll: sau khi xoá cache, tổ tiên được tra lại', async (
 test('parent không truy cập được (404) bị bỏ qua, parent còn lại vẫn được xét', async () => {
   const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
   assert.equal((await scope.resolve('ghostParent')).root.name, 'bao-cao');
+});
+
+test('mọi parent đều 404 → OUT_OF_SCOPE', async () => {
+  const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
+  await assert.rejects(scope.resolve('allGhostParents'), (e) => e instanceof ScopeError && e.code === 'OUT_OF_SCOPE');
+});
+
+test('parent lỗi không phải 404 (500) được ném lên, không bị nuốt', async () => {
+  const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
+  await assert.rejects(scope.resolve('err500Parent'), (e) => e.code === 500);
+});
+
+test('shortcut không có targetId → OUT_OF_SCOPE', async () => {
+  const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
+  await assert.rejects(scope.resolve('brokenShortcut'), (e) => e.code === 'OUT_OF_SCOPE' && /Shortcut không có đích/.test(e.message));
+});
+
+test('vòng bị cắt không cache null: B thuộc phạm vi qua A sau khi resolve A', async () => {
+  const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
+  assert.equal((await scope.resolve('cycA0001')).root.name, 'test-run');
+  assert.equal((await scope.resolve('cycB0001')).root.name, 'test-run');
+});
+
+test('chuỗi sâu hơn MAX_DEPTH → OUT_OF_SCOPE, không cache null cho node trung gian bị cắt', async () => {
+  const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
+  await assert.rejects(scope.resolve('chainNode00'), (e) => e.code === 'OUT_OF_SCOPE');
+  // chainNode20 cách rootA 20 tầng: phải resolve được, nghĩa là lần trước không cache null cho nó.
+  assert.equal((await scope.resolve('chainNode20')).root.name, 'test-run');
 });
