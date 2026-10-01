@@ -1,0 +1,63 @@
+name: Lỗi với client AI
+description: gdrive install --client hoặc MCP server không chạy được với Codex, Copilot, Cursor, Kiro hay client khác.
+labels: [client]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Mới chỉ Claude Code và Codex CLI được thử thật. Báo cáo từ client khác giúp ích nhiều.
+        Đừng dán credential vào đây.
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options:
+        - Claude Code (plugin)
+        - Codex
+        - GitHub Copilot (VS Code)
+        - GitHub Copilot CLI
+        - Cursor
+        - Kiro
+        - Khác (ghi bên dưới)
+    validations:
+      required: true
+  - type: input
+    id: client-version
+    attributes:
+      label: Phiên bản client
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Cấp cài đặt
+      options:
+        - Cấp user (mặc định)
+        - --project
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Chuyện gì xảy ra
+      description: Client báo lỗi gì, tool có hiện ra không, gọi tool thì ra sao.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Khối cấu hình gdrive trong file config của client
+      description: Chỉ khối `gdrive`. Có thể thay đường dẫn cá nhân bằng `~`.
+      render: text
+  - type: textarea
+    id: install-output
+    attributes:
+      label: Kết quả `gdrive install --client …` và `gdrive status`
+      render: text
+  - type: input
+    id: env
+    attributes:
+      label: gdrive-cli, hệ điều hành, Node
+      placeholder: 0.3.0, Windows 11, Node 22.11
+    validations:
+      required: true

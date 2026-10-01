@@ -228,6 +228,14 @@ hợp stdout lẫn thứ không phải JSON-RPC. CI chạy trên Linux, macOS v�
 Bộ đọc `.xlsx` từng được đối chiếu với `python3` + `openpyxl` trên 6 file thật tải từ Drive:
 3859 ô, không lệch ô nào.
 
+## Đóng góp
+
+Bản phát hành nằm trên `main`, phát triển diễn ra trên `develop`. PR nhắm vào `develop`. Cách
+chạy dự án, quy ước và các nguyên tắc phải giữ nằm trong [CONTRIBUTING.md](CONTRIBUTING.md).
+Lịch sử thay đổi ở [CHANGELOG.md](CHANGELOG.md).
+
+Lỗ hổng bảo mật thì báo riêng theo [SECURITY.md](SECURITY.md), đừng mở issue công khai.
+
 ## Giấy phép
 
 MIT
