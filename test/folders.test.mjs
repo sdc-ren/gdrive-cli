@@ -27,6 +27,8 @@ test('validateFolders: từ chối tên sai, access lạ, trùng tên, trùng id
     [{ name: 'a', id: '1', access: 'read' }, { name: 'a', id: '2', access: 'read' }],
     [{ name: 'a', id: '1', access: 'read' }, { name: 'b', id: '1', access: 'read' }],
     [{ name: 'a', access: 'read' }],
+    [{ id: '1', access: 'read' }],
+    [{ id: '1', name: 123, access: 'read' }],
   ]) {
     assert.throws(() => validateFolders(bad), (e) => e.code === 'FOLDER_CONFIG', JSON.stringify(bad));
   }

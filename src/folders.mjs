@@ -50,7 +50,7 @@ export function validateFolders(list) {
   const ids = new Set();
   for (const f of list) {
     if (!f || typeof f.id !== 'string' || !f.id) throw new FolderConfigError('Folder thiếu id.');
-    if (!FOLDER_NAME_RE.test(String(f.name))) {
+    if (typeof f.name !== 'string' || !FOLDER_NAME_RE.test(f.name)) {
       throw new FolderConfigError(`Tên "${f.name}" không hợp lệ: chỉ a-z, 0-9 và dấu -, tối đa 63 ký tự.`);
     }
     if (!ACCESS_LEVELS.includes(f.access)) throw new FolderConfigError(`access của "${f.name}" phải là read hoặc write.`);

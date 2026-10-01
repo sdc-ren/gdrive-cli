@@ -434,7 +434,7 @@ test('uninstall --purge: xoá cả config trung lập và cảnh báo mọi clie
   });
 });
 
-test('writeConfig: không để lại file tạm, file cuối có mode 600 ngay từ đầu, ghi đè nguyên tử', async () => {
+test('writeConfig: không để lại file tạm, ghi đè đúng file, mode 600 sau khi ghi', async () => {
   await sandbox(async ({ home, env }) => {
     const file = writeConfig({ clientEmail: 'a@x.com', privateKey: 'k1' }, home, env);
     const again = writeConfig({ clientEmail: 'a@x.com', privateKey: 'k2' }, home, env);
