@@ -189,7 +189,7 @@ test('initialize trả instructions ngắn, trung lập (không dính biến ri�
   const { msgs } = await talk([INIT]);
   const { instructions } = msgs[0].result;
   assert.equal(typeof instructions, 'string');
-  assert.match(instructions, /gdrive_sheet_read/);
+  assert.match(instructions, /drive_read/);
   assert.doesNotMatch(instructions, /CLAUDE_PLUGIN_ROOT|\/gdrive-setup/);
   assert.ok(Buffer.byteLength(instructions) < 1500, `instructions quá dài: ${Buffer.byteLength(instructions)} byte`);
 });
@@ -199,7 +199,7 @@ test('`gdrive mcp`: CLI chạy server, trả lời tools/list và thoát 0 khi s
   assert.equal(code, 0);
   assert.equal(msgs.find((m) => m.id === 0).result.serverInfo.name, 'gdrive');
   const names = msgs.find((m) => m.id === 1).result.tools.map((t) => t.name);
-  assert.ok(names.includes('gdrive_sheet_read'));
+  assert.ok(names.includes('drive_read'));
 });
 
 test('server đọc config ở thư mục trung lập (máy không có plugin Claude)', async () => {
@@ -212,11 +212,11 @@ test('server đọc config ở thư mục trung lập (máy không có plugin Cl
   writeFileSync(join(dir, 'config.json'), JSON.stringify({
     clientEmail: 'sa@proj.iam.gserviceaccount.com',
     privateKey: 'not-a-real-key',
-    mode: 'readwrite',
+    folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }],
   }));
   const { msgs } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/list' }], { home });
   const names = msgs.find((m) => m.id === 1).result.tools.map((t) => t.name);
-  assert.ok(names.includes('gdrive_sheet_write'), 'readwrite từ config trung lập phải mở tool ghi');
+  assert.ok(names.includes('sheet_write'), 'folder write từ config trung lập phải mở tool ghi');
 });
 
 test('notification KHÔNG được trả lời', async () => {
@@ -227,19 +227,17 @@ test('notification KHÔNG được trả lời', async () => {
 test('tools/list chạy được KHÔNG cần credential', async () => {
   const { msgs } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/list' }]);
   const tools = msgs.find((m) => m.id === 1).result.tools;
-  assert.ok(tools.length >= 5);
+  assert.ok(tools.length >= 2);
   for (const t of tools) {
     assert.ok(t.name && t.description && t.inputSchema, `tool ${t.name} thiếu field`);
     assert.equal(t.inputSchema.type, 'object');
   }
 });
 
-test('mặc định readonly: KHÔNG lộ tool ghi', async () => {
+test('mặc định (chưa có folder write): KHÔNG lộ tool ghi', async () => {
   const { msgs } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/list' }]);
   const names = msgs.find((m) => m.id === 1).result.tools.map((t) => t.name);
-  assert.ok(names.includes('gdrive_sheet_read'));
-  assert.equal(names.includes('gdrive_sheet_write'), false, 'model không được thấy tool ghi');
-  assert.equal(names.includes('gdrive_upload'), false);
+  assert.deepEqual(names, ['drive_ls', 'drive_read'], 'model không được thấy tool ghi');
 });
 
 test('ping', async () => {
@@ -282,6 +280,8 @@ test('frame rác không phải JSON: bỏ qua, không làm hỏng stdout', async
 });
 
 test('lỗi của tool trả về isError (model đọc được), KHÔNG phải lỗi protocol', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
+  writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
   const { msgs } = await talk([
     INIT,
     {
@@ -289,33 +289,33 @@ test('lỗi của tool trả về isError (model đọc được), KHÔNG phải
       id: 6,
       method: 'tools/call',
       // URL rác → parseGoogleUrl ném UrlError ngay, không cần mạng.
-      params: { name: 'gdrive_sheet_read', arguments: { url_or_id: 'x' } },
+      params: { name: 'drive_read', arguments: { target: 'x' } },
     },
-  ]);
+  ], { home });
   const res = msgs.find((m) => m.id === 6);
   assert.equal(res.error, undefined, 'không được là lỗi protocol');
   assert.equal(res.result.isError, true);
   assert.match(res.result.content[0].text, /không phải URL Google hợp lệ/);
 });
 
-test('config đổi readonly → readwrite: ping bắn list_changed, tools/list có tool ghi', async () => {
+test('config đổi folder read → write: ping bắn list_changed, tools/list có tool ghi', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-reload-'));
   try {
-    writeConfig(home, { mode: 'readonly' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
     const server = startServer({ home });
     server.send(INIT);
     await server.waitFor((m) => m.id === 0);
     server.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const before = await server.waitFor((m) => m.id === 1);
-    assert.equal(before.result.tools.some((t) => t.name === 'gdrive_sheet_write'), false);
+    assert.equal(before.result.tools.some((t) => t.name === 'sheet_write'), false);
 
-    writeConfig(home, { mode: 'readwrite' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }] });
     server.send({ jsonrpc: '2.0', id: 2, method: 'ping' });
     await server.waitFor((m) => m.method === 'notifications/tools/list_changed');
     await server.waitFor((m) => m.id === 2);
     server.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     const after = await server.waitFor((m) => m.id === 3);
-    assert.equal(after.result.tools.some((t) => t.name === 'gdrive_sheet_write'), true);
+    assert.equal(after.result.tools.some((t) => t.name === 'sheet_write'), true);
 
     server.child.stdin.end();
     const closed = await server.close;
@@ -325,18 +325,18 @@ test('config đổi readonly → readwrite: ping bắn list_changed, tools/list 
   }
 });
 
-test('config đổi credential nhưng vẫn readonly: không bắn list_changed và tools/list vẫn không có tool ghi', async () => {
+test('config đổi credential nhưng folder vẫn read: không bắn list_changed và tools/list vẫn không có tool ghi', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-reload-credential-'));
   try {
-    writeConfig(home, { mode: 'readonly', clientEmail: 'old-sa@proj.iam.gserviceaccount.com' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }], clientEmail: 'old-sa@proj.iam.gserviceaccount.com' });
     const server = startServer({ home });
     server.send(INIT);
     await server.waitFor((m) => m.id === 0);
     server.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const before = await server.waitFor((m) => m.id === 1);
-    assert.equal(before.result.tools.some((t) => t.name === 'gdrive_sheet_write'), false);
+    assert.equal(before.result.tools.some((t) => t.name === 'sheet_write'), false);
 
-    writeConfig(home, { mode: 'readonly', clientEmail: 'rotated-sa@proj.iam.gserviceaccount.com' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }], clientEmail: 'rotated-sa@proj.iam.gserviceaccount.com' });
     server.send({ jsonrpc: '2.0', id: 2, method: 'ping' });
     await server.waitFor((m) => m.id === 2);
     assert.equal(
@@ -346,7 +346,7 @@ test('config đổi credential nhưng vẫn readonly: không bắn list_changed 
 
     server.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     const after = await server.waitFor((m) => m.id === 3);
-    assert.equal(after.result.tools.some((t) => t.name === 'gdrive_sheet_write'), false);
+    assert.equal(after.result.tools.some((t) => t.name === 'sheet_write'), false);
 
     server.child.stdin.end();
     const closed = await server.close;
@@ -361,21 +361,21 @@ test('config hỏng ưu tiên cao không chặn reload của config hợp lệ t
   const higherDir = join(home, '.claude', 'plugins', 'data', 'gdrive-inline');
   try {
     writeBrokenConfig(join(higherDir, 'config.json'));
-    writeConfig(home, { mode: 'readonly' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
     const server = startServer({ home, env: { CLAUDE_PLUGIN_DATA: higherDir } });
     server.send(INIT);
     await server.waitFor((m) => m.id === 0);
     server.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const before = await server.waitFor((m) => m.id === 1);
-    assert.equal(before.result.tools.some((t) => t.name === 'gdrive_sheet_write'), false);
+    assert.equal(before.result.tools.some((t) => t.name === 'sheet_write'), false);
 
-    writeConfig(home, { mode: 'readwrite' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }] });
     server.send({ jsonrpc: '2.0', id: 2, method: 'ping' });
     await server.waitFor((m) => m.method === 'notifications/tools/list_changed');
     await server.waitFor((m) => m.id === 2);
     server.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     const after = await server.waitFor((m) => m.id === 3);
-    assert.equal(after.result.tools.some((t) => t.name === 'gdrive_sheet_write'), true);
+    assert.equal(after.result.tools.some((t) => t.name === 'sheet_write'), true);
 
     server.child.stdin.end();
     const closed = await server.close;
@@ -385,24 +385,24 @@ test('config hỏng ưu tiên cao không chặn reload của config hợp lệ t
   }
 });
 
-test('config ưu tiên cao hơn xuất hiện: legacy readonly → plugin readwrite reload được', async () => {
+test('config ưu tiên cao hơn xuất hiện: legacy read → plugin write reload được', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-reload-priority-'));
   try {
-    writeLegacyConfig(home, { mode: 'readonly' });
+    writeLegacyConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
     const server = startServer({ home });
     server.send(INIT);
     await server.waitFor((m) => m.id === 0);
     server.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const before = await server.waitFor((m) => m.id === 1);
-    assert.equal(before.result.tools.some((t) => t.name === 'gdrive_sheet_write'), false);
+    assert.equal(before.result.tools.some((t) => t.name === 'sheet_write'), false);
 
-    writeConfig(home, { mode: 'readwrite' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }] });
     server.send({ jsonrpc: '2.0', id: 2, method: 'ping' });
     await server.waitFor((m) => m.method === 'notifications/tools/list_changed');
     await server.waitFor((m) => m.id === 2);
     server.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     const after = await server.waitFor((m) => m.id === 3);
-    assert.equal(after.result.tools.some((t) => t.name === 'gdrive_sheet_write'), true);
+    assert.equal(after.result.tools.some((t) => t.name === 'sheet_write'), true);
 
     server.child.stdin.end();
     const closed = await server.close;
@@ -412,30 +412,30 @@ test('config ưu tiên cao hơn xuất hiện: legacy readonly → plugin readwr
   }
 });
 
-test('config đổi readwrite → readonly: tool ghi biến mất và tools/call bị từ chối', async () => {
+test('config đổi folder write → read: tool ghi biến mất và tools/call bị từ chối', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-reload-down-'));
   try {
-    writeConfig(home, { mode: 'readwrite' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }] });
     const server = startServer({ home });
     server.send(INIT);
     await server.waitFor((m) => m.id === 0);
     server.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const before = await server.waitFor((m) => m.id === 1);
-    assert.equal(before.result.tools.some((t) => t.name === 'gdrive_sheet_write'), true);
+    assert.equal(before.result.tools.some((t) => t.name === 'sheet_write'), true);
 
-    writeConfig(home, { mode: 'readonly' });
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
     server.send({ jsonrpc: '2.0', id: 2, method: 'ping' });
     await server.waitFor((m) => m.method === 'notifications/tools/list_changed');
     await server.waitFor((m) => m.id === 2);
     server.send({ jsonrpc: '2.0', id: 3, method: 'tools/list' });
     const after = await server.waitFor((m) => m.id === 3);
-    assert.equal(after.result.tools.some((t) => t.name === 'gdrive_sheet_write'), false);
+    assert.equal(after.result.tools.some((t) => t.name === 'sheet_write'), false);
 
     server.send({
       jsonrpc: '2.0',
       id: 4,
       method: 'tools/call',
-      params: { name: 'gdrive_sheet_write', arguments: {} },
+      params: { name: 'sheet_write', arguments: {} },
     });
     const rejected = await server.waitFor((m) => m.id === 4);
     assert.equal(rejected.error.code, -32602);
@@ -451,7 +451,7 @@ test('config đổi readwrite → readonly: tool ghi biến mất và tools/call
 test('tools/call lỗi credential rồi đóng stdin ngay vẫn trả response và exit 0', async () => {
   const { msgs, code } = await talk([
     INIT,
-    { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'gdrive_list', arguments: {} } },
+    { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'drive_read', arguments: { target: 'abcdefghij' } } },
   ]);
   const res = msgs.find((m) => m.id === 7);
   assert.equal(code, 0);
@@ -461,6 +461,8 @@ test('tools/call lỗi credential rồi đóng stdin ngay vẫn trả response v
 
 test('stdout backpressure: đóng stdin ngay vẫn flush xong frame lớn trước khi exit', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-backpressure-'));
+  // Cần credential + folder để tool đi tới parseGoogleUrl: lỗi của nó chứa nguyên URL 4 MB.
+  writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
   const t0 = Date.now();
   const child = spawn(process.execPath, [SERVER], {
     env: sandboxEnv(home),
@@ -524,8 +526,8 @@ test('stdout backpressure: đóng stdin ngay vẫn flush xong frame lớn trư�
       id: 8,
       method: 'tools/call',
       params: {
-        name: 'gdrive_file_info',
-        arguments: { url_or_id: `https://example.com/${'x'.repeat(4_000_000)}` },
+        name: 'drive_read',
+        arguments: { target: `https://example.com/${'x'.repeat(4_000_000)}` },
       },
     })}\n`;
     stdinBytesWritten += Buffer.byteLength(bigFrame);
@@ -609,14 +611,17 @@ test('Node dưới 18.17: server báo stderr rồi thoát khác 0 trước hands
 
 // ── buildTools (không qua tiến trình con) ───────────────────────────────────
 
-test('buildTools: readwrite mở đủ 7 tool, readonly còn 5', () => {
-  const ctx = { getClient: () => ({}), mode: 'readwrite' };
-  assert.equal(buildTools(ctx).length, 7);
-  assert.equal(buildTools({ ...ctx, mode: 'readonly' }).length, 5);
+const FOLDERS_W = [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }];
+const FOLDERS_R = [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }];
+
+test('buildTools: có folder write mở đủ 5 tool, chỉ read còn 2', () => {
+  const ctx = { getClient: () => ({}), folders: FOLDERS_W };
+  assert.equal(buildTools(ctx).length, 5);
+  assert.equal(buildTools({ ...ctx, folders: FOLDERS_R }).length, 2);
 });
 
 test('buildTools: mọi tool có schema hợp lệ và additionalProperties=false', () => {
-  for (const t of buildTools({ getClient: () => ({}), mode: 'readwrite' })) {
+  for (const t of buildTools({ getClient: () => ({}), folders: FOLDERS_W })) {
     assert.equal(t.inputSchema.additionalProperties, false, `${t.name} phải chặn field lạ`);
     assert.equal(typeof t.run, 'function');
     assert.ok(t.description.length > 40, `${t.name}: mô tả quá ngắn để model chọn đúng tool`);
@@ -624,8 +629,27 @@ test('buildTools: mọi tool có schema hợp lệ và additionalProperties=fals
 });
 
 test('buildTools: tool ghi được đánh dấu write=true', () => {
-  const w = buildTools({ getClient: () => ({}), mode: 'readwrite' })
+  const w = buildTools({ getClient: () => ({}), folders: FOLDERS_W })
     .filter((t) => t.write)
     .map((t) => t.name);
-  assert.deepEqual(w.sort(), ['gdrive_sheet_write', 'gdrive_upload']);
+  assert.deepEqual(w.sort(), ['drive_create', 'drive_move', 'sheet_write']);
+});
+
+test('tools/call trả văn bản thuần, lỗi phạm vi bắt đầu bằng ✗ và là isError', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
+  writeConfig(home, { folders: [] });
+  const { msgs } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'drive_read', arguments: { target: 'abcdefghij' } } }], { home });
+  const r = msgs.find((m) => m.id === 1).result;
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /^✗ Chưa có folder nào được phép/);
+  assert.doesNotMatch(r.content[0].text, /^\{/, 'không bọc JSON');
+});
+
+test('config folders hỏng: server vẫn trả lời tools/list, tools/call báo lỗi cấu hình', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
+  writeConfig(home, { folders: [{ id: '1', name: 'Có Dấu', access: 'read' }] });
+  const { msgs, code } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'drive_ls', arguments: {} } }], { home });
+  assert.equal(code, 0);
+  assert.ok(msgs.find((m) => m.id === 1).result.tools.length >= 2);
+  assert.match(msgs.find((m) => m.id === 2).result.content[0].text, /✗ Tên "Có Dấu" không hợp lệ/);
 });
