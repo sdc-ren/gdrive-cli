@@ -9,6 +9,7 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { runClientUninstall, runInstall } from '../src/clients.mjs';
+import { resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
 import { createClient } from '../src/client.mjs';
 import { readConfig } from '../src/config.mjs';
 import {
@@ -23,8 +24,6 @@ import { runFolder } from '../src/folder-cli.mjs';
 import { loadFolders } from '../src/folders.mjs';
 import { KIND as FORMAT_KIND, MIME } from '../src/formats.mjs';
 import { runInit } from '../src/init.mjs';
-import { createMetaStore } from '../src/meta.mjs';
-import { createScope } from '../src/scope.mjs';
 import { batchUpdateValues, getMetadata, pickSheet } from '../src/sheets.mjs';
 import { runStatus } from '../src/status.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
@@ -138,32 +137,21 @@ function printWarnings(warnings) {
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
+const cliFolders = () => loadFolders({ config: readConfig(), env: process.env });
+
 function clientFor(flags, { needWrite = false } = {}) {
   const cfg = readConfig();
-  const mode = flags.mode ?? cfg?.mode ?? 'readonly';
-  if (needWrite && mode !== 'readwrite') {
-    const e = new Error(
-      'Đang ở chế độ readonly nên lệnh này bị từ chối.\n' +
-        'Bật ghi: gdrive init --mode readwrite   (hoặc thêm --mode readwrite cho lần chạy này)',
-    );
-    e.exitCode = 3;
-    throw e;
-  }
+  const folders = loadFolders({ config: cfg, env: process.env });
+  const mode = resolveCliMode({ flags, cfg, folders, needWrite });
   return createClient({ mode, retries: 2 });
 }
 
 /**
- * Khi đã có danh sách folder, CLI cũng tuân phạm vi như MCP: file ngoài folder được phép
- * bị từ chối. Chưa có danh sách thì CLI đọc mọi thứ service account thấy (dùng tay, không
- * phải model gọi). Scope tạo mới mỗi lệnh (instance scope bất biến theo danh sách folder).
+ * Có danh sách folder thì CLI tuân phạm vi như MCP (xem src/cli-scope.mjs); `write: true`
+ * thì file phải nằm trong folder có quyền write. Scope tạo mới mỗi lệnh.
  */
-async function scopedTarget(client, input) {
-  const folders = loadFolders({ config: readConfig(), env: process.env });
-  if (!folders.length) return parseGoogleUrl(input);
-  const meta = createMetaStore({ client });
-  const scope = createScope({ folders, meta });
-  const { fileId, gid } = await scope.resolve(input);
-  return { id: fileId, gid };
+function scopedTarget(client, input, { write = false } = {}) {
+  return resolveCliTarget({ client, input, write, folders: cliFolders() });
 }
 
 function requireArg(flags, index, what) {
@@ -322,7 +310,7 @@ async function cmdPut(flags) {
     throw e;
   }
   const client = clientFor(flags, { needWrite: true });
-  const folderId = parseGoogleUrl(flags.folder).id;
+  const folderId = (await scopedTarget(client, flags.folder, { write: true })).id;
 
   // Chặn trước bằng lỗi nói đúng bệnh, thay vì để Google ném 403 khó hiểu.
   await assertUploadableFolder(client, folderId);
@@ -347,7 +335,7 @@ async function cmdPut(flags) {
 
 async function cmdWrite(flags) {
   const client = clientFor(flags, { needWrite: true });
-  const { id, gid } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
+  const { id, gid } = await scopedTarget(client, requireArg(flags, 1, '<url>'), { write: true });
   const sets = [].concat(flags.set ?? []).filter((s) => typeof s === 'string');
   if (!sets.length) {
     const e = new Error('Thiếu --set <ô>=<giá trị>. Ví dụ: --set L5=PASSED --set L6=FAILED');
