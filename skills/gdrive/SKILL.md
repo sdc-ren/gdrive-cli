@@ -41,7 +41,7 @@ Lỗi luôn bắt đầu bằng `✗`.
 - **Chưa chắc đã ghi.** Mất kết nối giữa lúc thêm dòng. Đọc lại cuối bảng bằng `drive_read`
   trước khi gọi lại `sheet_write`, kẻo ghi trùng.
 - **storageQuotaExceeded.** Service account không có dung lượng My Drive. `drive_create` chỉ
-  chạy trong folder trên Shared Drive; `sheet_write` vào sheet có sẵn thì vẫn được.
+  chạy trong folder trên Shared Drive; `sheet_write` vào sheet có sẵn không bị giới hạn này (quota chỉ chặn tạo file mới).
 - **`.doc` / `.xls` / `.ppt` đời cũ.** Cố ý không hỗ trợ. Bảo người dùng mở trong Drive, chọn
   File > Save as Google Docs/Sheets/Slides rồi đưa link mới.
 

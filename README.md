@@ -195,7 +195,7 @@ TC-07	Sai thông báo khi mật khẩu rỗng
 TC-12	Timeout ở bước xác thực OTP
 ```
 
-Dòng đầu luôn liệt kê mọi tab. Còn dòng chưa đọc thì dòng đầu có thêm `next=<offset>`, và model
+Dòng đầu luôn liệt kê mọi tab. Khi còn dòng chưa đọc, dòng đầu có thêm `next=<offset>`, và model
 đọc tiếp bằng `offset`. Mặc định 200 dòng một trang, tối đa 2000.
 
 ## Đọc được những gì
@@ -285,18 +285,17 @@ gdrive folder add <link-folder> --access read
 gdrive folder add <link-folder-ghi> --access write
 ```
 
-Tên tool đổi như sau. Mọi tool cũ có chung tiền tố `gdrive_`; cột v0.3 ghi phần tên sau tiền tố
-đó.
+Tên tool đổi như sau:
 
-| v0.3 (bỏ tiền tố `gdrive_`) | v0.4 |
+| v0.3 | v0.4 |
 |---|---|
-| `sheet_read` | `drive_read` |
-| `read_document` | `drive_read` |
-| `file_info` | `drive_read` (file không đọc được thì trả một dòng metadata) |
-| `list` | `drive_ls` |
-| `sheet_write` | `sheet_write` |
-| `download` | bỏ khỏi MCP; dùng CLI `gdrive get` |
-| `upload` | bỏ khỏi MCP; dùng CLI `gdrive put` |
+| `gdrive_sheet_read` | `drive_read` |
+| `gdrive_read_document` | `drive_read` |
+| `gdrive_file_info` | `drive_read` |
+| `gdrive_list` | `drive_ls` |
+| `gdrive_sheet_write` | `sheet_write` |
+| `gdrive_download` | bỏ khỏi MCP (CLI `get` vẫn còn) |
+| `gdrive_upload` | bỏ khỏi MCP (CLI `put` vẫn còn) |
 
 Prompt, skill hay tài liệu riêng nào nhắc tên cũ thì cần sửa theo bảng trên.
 

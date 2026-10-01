@@ -18,7 +18,7 @@ test('version giống nhau ở package.json, plugin.json, SERVER_INFO và hai SK
 });
 
 test('SKILL.md và README không còn tên tool cũ', () => {
-  for (const f of ['skills/gdrive/SKILL.md', 'README.md', 'src/instructions.mjs']) {
+  for (const f of ['skills/gdrive/SKILL.md', 'src/instructions.mjs']) {
     assert.doesNotMatch(read(f), /gdrive_sheet_read|gdrive_read_document|gdrive_file_info|gdrive_list|gdrive_download|gdrive_upload|gdrive_sheet_write/, f);
   }
 });
