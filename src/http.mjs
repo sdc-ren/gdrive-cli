@@ -228,39 +228,50 @@ async function once({ url, method, token, body, headers, responseType, timeoutMs
     finalHeaders['content-type'] ??= 'application/json; charset=UTF-8';
   }
 
-  // Signal timeout huỷ cả lúc đọc body, nên mọi bước await đều phải đổi abort thành TimeoutError.
+  // Timer thường (có ref) thay vì AbortSignal.timeout(): timer của AbortSignal.timeout bị
+  // unref trên Node 18/22, nên khi không còn gì khác giữ event loop (như fetch giả trong
+  // test) tiến trình thoát trước khi timeout bắn. Một timer bao trọn cả fetch lẫn đọc body,
+  // và mọi bước await đều đổi abort thành TimeoutError.
+  const ac = new AbortController();
+  const timer = timeoutMs > 0 ? setTimeout(() => ac.abort(), timeoutMs) : null;
   const guard = async (fn) => {
     try {
       return await fn();
     } catch (err) {
-      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') throw new TimeoutError(url, method, timeoutMs);
+      if (ac.signal.aborted || err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        throw new TimeoutError(url, method, timeoutMs);
+      }
       throw err;
     }
   };
 
-  const res = await guard(() =>
-    fetchImpl(url, { method, headers: finalHeaders, body: payload, signal: timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined }),
-  );
+  try {
+    const res = await guard(() =>
+      fetchImpl(url, { method, headers: finalHeaders, body: payload, signal: timer ? ac.signal : undefined }),
+    );
 
-  if (!res.ok) {
-    // Lỗi của Google luôn là JSON, nhưng 5xx từ load balancer có thể là HTML.
-    const text = await guard(() => res.text()).catch((err) => {
-      if (err instanceof TimeoutError) throw err;
-      return '';
-    });
-    let parsed = text;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      /* giữ nguyên text */
+    if (!res.ok) {
+      // Lỗi của Google luôn là JSON, nhưng 5xx từ load balancer có thể là HTML.
+      const text = await guard(() => res.text()).catch((err) => {
+        if (err instanceof TimeoutError) throw err;
+        return '';
+      });
+      let parsed = text;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        /* giữ nguyên text */
+      }
+      throw new GoogleApiError(res.status, parsed, { url, method, retryAfter: res.headers?.get?.('retry-after') ?? null });
     }
-    throw new GoogleApiError(res.status, parsed, { url, method, retryAfter: res.headers?.get?.('retry-after') ?? null });
-  }
 
-  // 'raw' cho những chỗ cần header (upload resumable đọc Location).
-  if (responseType === 'raw') return res;
-  if (responseType === 'buffer') return Buffer.from(await guard(() => res.arrayBuffer()));
-  if (responseType === 'text') return guard(() => res.text());
-  const text = await guard(() => res.text());
-  return text ? JSON.parse(text) : {};
+    // 'raw' cho những chỗ cần header (upload resumable đọc Location).
+    if (responseType === 'raw') return res;
+    if (responseType === 'buffer') return Buffer.from(await guard(() => res.arrayBuffer()));
+    if (responseType === 'text') return guard(() => res.text());
+    const text = await guard(() => res.text());
+    return text ? JSON.parse(text) : {};
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
