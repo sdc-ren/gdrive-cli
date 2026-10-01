@@ -3,6 +3,7 @@
   "description": "Đọc/ghi Google Sheets, Docs, Slides và file .xlsx/.docx/.pptx trên Drive bằng service account. Zero dependency.",
   "version": "0.3.0",
   "author": { "name": "dangchison" },
-  "homepage": "https://github.com/dangchison/gdrive-cli",
+  "homepage": "https://github.com/sdc-ren/gdrive-cli",
+  "repository": "https://github.com/sdc-ren/gdrive-cli",
   "license": "MIT"
 }

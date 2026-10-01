@@ -1,4 +1,10 @@
 node_modules/
+
+# Thư mục local của công cụ AI/IDE trên máy dev.
+.claude/
+.codegraph/
+.serena/
+.corp/
 *.log
 .DS_Store
 

@@ -1,0 +1,70 @@
+name: Báo lỗi
+description: Lệnh hoặc tool chạy sai, báo lỗi khó hiểu, hoặc kết quả đọc file bị sai.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Đừng dán nội dung file key, private key, hay dữ liệu thật trên Drive vào đây.
+        Lỗi bảo mật thì báo riêng qua tab Security.
+  - type: textarea
+    id: what
+    attributes:
+      label: Chuyện gì xảy ra
+      description: Bạn chạy gì, kết quả ra sao, và bạn mong đợi điều gì.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Các bước tái hiện
+      placeholder: |
+        1. gdrive init --sa-json …
+        2. gdrive read <url>
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Kết quả `gdrive status`
+      description: Xoá email service account và đường dẫn cá nhân nếu bạn muốn.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Phiên bản gdrive-cli
+      description: "`gdrive --version`"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Cài bằng cách nào
+      options:
+        - Plugin Claude Code
+        - npm i -g github:sdc-ren/gdrive-cli
+        - Chạy từ mã nguồn
+        - Thư viện trong script Node
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Hệ điều hành và phiên bản Node
+      placeholder: macOS 15, Node 22.11
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Loại file liên quan (nếu có)
+      multiple: true
+      options:
+        - Google Sheets
+        - Google Docs
+        - Google Slides
+        - .xlsx
+        - .docx
+        - .pptx
+        - Khác
