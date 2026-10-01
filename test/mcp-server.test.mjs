@@ -2,7 +2,7 @@
 // Không cần mạng, không cần credential — client dựng lazy nên tools/list vẫn chạy.
 
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -356,6 +356,32 @@ test('config đổi credential nhưng folder vẫn read: không bắn list_chang
   }
 });
 
+test('config đổi danh sách folder: scope dựng lại trong cùng tiến trình (NO_FOLDERS → # 1 folders)', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-reload-scope-'));
+  try {
+    writeConfig(home, { folders: [] });
+    const server = startServer({ home });
+    server.send(INIT);
+    await server.waitFor((m) => m.id === 0);
+    server.send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'drive_ls', arguments: {} } });
+    const before = await server.waitFor((m) => m.id === 1);
+    assert.equal(before.result.isError, true);
+    assert.match(before.result.content[0].text, /^✗ Chưa có folder nào được phép/);
+
+    writeConfig(home, { folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
+    server.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'drive_ls', arguments: {} } });
+    const after = await server.waitFor((m) => m.id === 2);
+    assert.equal(after.result.isError, undefined);
+    assert.equal(after.result.content[0].text, '# 1 folders\nd run (read) f1aaaaaaaa');
+
+    server.child.stdin.end();
+    const closed = await server.close;
+    assert.equal(closed.code, 0);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('config hỏng ưu tiên cao không chặn reload của config hợp lệ thấp hơn', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-reload-broken-priority-'));
   const higherDir = join(home, '.claude', 'plugins', 'data', 'gdrive-inline');
@@ -656,4 +682,18 @@ test('config folders hỏng: server vẫn trả lời tools/list, tools/call bá
   assert.equal(code, 0);
   assert.ok(msgs.find((m) => m.id === 1).result.tools.length >= 2);
   assert.match(msgs.find((m) => m.id === 2).result.content[0].text, /✗ Tên "Có Dấu" không hợp lệ/);
+});
+
+test('CLI write: lỗi --set báo exit 2 trước khi dựng client (không cần credential/mode)', () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-cli-write-'));
+  try {
+    const r = spawnSync(process.execPath, [CLI, 'write', 'abcdefghij'], { env: sandboxEnv(home), encoding: 'utf8' });
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /Thiếu --set/);
+    const bad = spawnSync(process.execPath, [CLI, 'write', 'abcdefghij', '--set', 'L5'], { env: sandboxEnv(home), encoding: 'utf8' });
+    assert.equal(bad.status, 2, bad.stderr);
+    assert.match(bad.stderr, /sai cú pháp/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

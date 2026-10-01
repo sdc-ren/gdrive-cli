@@ -118,6 +118,46 @@ test('init: chạy lại thì giữ credential cũ, đổi được mode', async
   });
 });
 
+test('init: chạy lại với key khác / --adc giữ nguyên folders, đổi đúng credential', async () => {
+  await sandbox(async ({ home, keyFile, env }) => {
+    const logs = [];
+    const log = (l) => logs.push(l);
+    await runInit(baseFlags(keyFile), { home, log, env });
+    assert.match(logs.join('\n'), /Chưa có folder nào được phép — chạy: gdrive folder add <url-folder> \[--access write\]/);
+    const folders = [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }];
+    writeConfig({ ...readConfig(home, env), folders, extra: 'giữ' }, home, env);
+
+    const other = join(home, 'other.json');
+    writeFileSync(other, KEY_JSON.replace('test-sa@', 'other-sa@'));
+    logs.length = 0;
+    await runInit({ yes: true, 'sa-json': other, 'no-test': true }, { home, log, env });
+    let cfg = readConfig(home, env);
+    assert.deepEqual(cfg.folders, folders);
+    assert.equal(cfg.extra, 'giữ');
+    assert.equal(cfg.clientEmail, 'other-sa@proj-test.iam.gserviceaccount.com');
+    assert.doesNotMatch(logs.join('\n'), /Chưa có folder nào/);
+
+    await runInit({ yes: true, adc: true, 'no-test': true }, { home, log, env });
+    cfg = readConfig(home, env);
+    assert.deepEqual(cfg.folders, folders);
+    assert.equal(cfg.useAdc, true);
+    assert.equal(cfg.privateKey, undefined, 'chuyển sang ADC thì bỏ private key');
+    assert.equal(cfg.clientEmail, undefined);
+  });
+});
+
+test('writeConfig: file tạm cũ sót lại (crash, quyền 644) bị xoá rồi ghi mới với quyền 600', async () => {
+  await sandbox(async ({ home, env }) => {
+    const target = writeConfig({ mode: 'readonly' }, home, env);
+    const tmp = `${target}.${process.pid}.tmp`;
+    writeFileSync(tmp, 'rác cũ', { mode: 0o644 });
+    writeConfig({ mode: 'readwrite' }, home, env);
+    assert.equal(existsSync(tmp), false);
+    assert.equal(readConfig(home, env).mode, 'readwrite');
+    if (process.platform !== 'win32') assert.equal(statSync(target).mode & 0o777, 0o600);
+  });
+});
+
 test('init: có 2 thư mục gdrive* rỗng thì chỉ tạo đúng 1 config.json', async () => {
   await sandbox(async ({ home, keyFile, log }) => {
     const root = join(home, '.claude', 'plugins', 'data');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
+import { assertCliQueryAllowed, resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
 
 const FOLDER = 'application/vnd.google-apps.folder';
 const SHEET = 'application/vnd.google-apps.spreadsheet';
@@ -109,4 +109,13 @@ test('ls: không folders → hành vi cũ (không target = null, có target = id
     { folderId: '1AbCdEfGhIjK' },
   );
   assert.deepEqual(calls, []);
+});
+
+test('ls --query: bị từ chối (exit 2) khi đã có folder, vì mệnh đề q thô thoát được `in parents`', () => {
+  assert.throws(
+    () => assertCliQueryAllowed({ query: "name contains 'x' or trashed = false", folders: FOLDERS }),
+    (e) => e.exitCode === 2 && e.message === '--query không dùng được khi đã cấu hình folder (có thể thoát khỏi phạm vi).',
+  );
+  assert.doesNotThrow(() => assertCliQueryAllowed({ query: "name = 'x'", folders: [] }));
+  assert.doesNotThrow(() => assertCliQueryAllowed({ query: null, folders: FOLDERS }));
 });

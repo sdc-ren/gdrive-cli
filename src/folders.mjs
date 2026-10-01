@@ -19,7 +19,7 @@ export class FolderConfigError extends Error {
 export function slugify(name) {
   const slug = String(name ?? '')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'd')
     .toLowerCase()

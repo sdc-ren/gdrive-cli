@@ -29,6 +29,11 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
 - Timeout 30 giây, thử lại theo `Retry-After` có jitter, giới hạn 4 request đồng thời, `GDRIVE_DEBUG=1`.
 - `npm run bench` đo token; CI đỏ khi schema vượt 700 token ước lượng.
 - `SECURITY.md`, `CONTRIBUTING.md`, template issue và PR.
+- `sheet_write` và `drive_create` (sheet) từ chối công thức `IMPORT*`/`IMAGE`: chúng kéo dữ
+  liệu ngoài phạm vi folder vào hoặc gửi dữ liệu ra ngoài.
+- `gdrive status` liệt kê folder được phép, báo đỏ khi danh sách rỗng.
+- `gdrive ls --query` bị từ chối khi đã có danh sách folder (mệnh đề `q` thô thoát được phạm vi).
+- `gdrive get` không giới hạn thời gian tải; upload có timeout theo kích thước file.
 
 ### Đổi
 
@@ -46,6 +51,8 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
 - Chặn file trên 50 MB và zip giải nén trên 256 MB.
 - Config ghi nguyên tử với mode 600 ngay từ đầu.
 - `gdrive_download` từng ghi được file tuỳ ý trên máy từ MCP, kể cả ở readonly; đã bỏ khỏi MCP.
+- `gdrive init` chạy lại không còn xoá danh sách `folders`.
+- Lỗi ngoài phạm vi không còn nêu tên file nằm ngoài phạm vi.
 
 ## [0.3.0] - 2026-09-30
 

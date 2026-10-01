@@ -194,6 +194,15 @@ test('timeout: fetch treo quá timeoutMs thì lỗi ETIMEDOUT và được thử
   );
 });
 
+test('timeoutMs <= 0: không gắn AbortSignal (không timeout)', async () => {
+  const seen = [];
+  const capture = async (url, init) => { seen.push(init); return res({ body: '{"ok":true}' }); };
+  assert.deepEqual(await request({ url: 'https://x.test', fetchImpl: capture, timeoutMs: 0 }), { ok: true });
+  assert.equal(seen[0].signal, undefined);
+  await request({ url: 'https://x.test', fetchImpl: capture, timeoutMs: 50 });
+  assert.ok(seen[1].signal, 'timeout dương vẫn có signal');
+});
+
 test('request KHÔNG idempotent: timeout → UNCERTAIN_WRITE không thử lại; 429 vẫn thử lại', async () => {
   let calls = 0;
   const hang = (url, init) => new Promise((_, reject) => { calls++; init.signal.addEventListener('abort', () => reject(init.signal.reason)); });

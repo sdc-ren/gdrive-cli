@@ -9,7 +9,7 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { runClientUninstall, runInstall } from '../src/clients.mjs';
-import { resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
+import { assertCliQueryAllowed, resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
 import { createClient } from '../src/client.mjs';
 import { readConfig } from '../src/config.mjs';
 import {
@@ -250,8 +250,10 @@ async function cmdInfo(flags) {
 
 async function cmdLs(flags) {
   const target = flags._[1];
+  const folders = cliFolders();
+  assertCliQueryAllowed({ query: flags.query, folders });
   const client = clientFor(flags);
-  const listTarget = await resolveCliListTarget({ client, target, folders: cliFolders() });
+  const listTarget = await resolveCliListTarget({ client, target, folders });
   if (listTarget.roots) {
     // Có danh sách folder mà không chỉ đích: in các folder được phép, không liệt kê cả Drive.
     if (flags.json) json({ folders: listTarget.roots });
@@ -302,7 +304,8 @@ async function cmdGet(flags) {
     [FORMAT_KIND.GOOGLE_SLIDES]: MIME.PPTX,
   }[kind];
 
-  const buf = exportAs ? await exportFile(client, id, exportAs) : await downloadFile(client, id);
+  // CLI: người dùng ngồi chờ được bao lâu cũng được → không timeout (file lớn, mạng chậm).
+  const buf = exportAs ? await exportFile(client, id, exportAs, { timeoutMs: 0 }) : await downloadFile(client, id, { timeoutMs: 0 });
   writeFileSync(dest, buf);
 
   const payload = { path: dest, bytes: buf.length, name: meta.name, exported: Boolean(exportAs), mimeType: exportAs ?? meta.mimeType };
@@ -342,27 +345,33 @@ async function cmdPut(flags) {
   return true;
 }
 
-async function cmdWrite(flags) {
-  const client = clientFor(flags, { needWrite: true });
-  const { id, gid } = await scopedTarget(client, requireArg(flags, 1, '<url>'), { write: true });
+/** `--set Ô=giá trị` (lặp được) → [{ cell, value }]. Sai cách dùng → exitCode 2. */
+export function parseSets(flags) {
   const sets = [].concat(flags.set ?? []).filter((s) => typeof s === 'string');
   if (!sets.length) {
     const e = new Error('Thiếu --set <ô>=<giá trị>. Ví dụ: --set L5=PASSED --set L6=FAILED');
     e.exitCode = 2;
     throw e;
   }
+  return sets.map((entry) => {
+    const eq = entry.indexOf('=');
+    if (eq < 1) throw Object.assign(new Error(`--set "${entry}" sai cú pháp, cần dạng Ô=giá trị.`), { exitCode: 2 });
+    return { cell: entry.slice(0, eq).trim(), value: entry.slice(eq + 1) };
+  });
+}
+
+async function cmdWrite(flags) {
+  // Kiểm cú pháp TRƯỚC khi dựng client: lỗi cách dùng không được tốn một vòng gọi mạng.
+  const input = requireArg(flags, 1, '<url>');
+  const sets = parseSets(flags);
+  const client = clientFor(flags, { needWrite: true });
+  const { id, gid } = await scopedTarget(client, input, { write: true });
 
   const meta = await getMetadata(client, id);
   const sheet = pickSheet(meta.sheets, { sheet: flags.sheet ?? null, gid });
 
-  const data = sets.map((entry) => {
-    const eq = entry.indexOf('=');
-    if (eq < 1) throw Object.assign(new Error(`--set "${entry}" sai cú pháp, cần dạng Ô=giá trị.`), { exitCode: 2 });
-    const cell = entry.slice(0, eq).trim();
-    const value = entry.slice(eq + 1);
-    // buildA1 lo phần tên tab + dấu nháy — chỗ 8 bản fork trong packflow đều viết sai.
-    return { range: buildA1(sheet.title, cell), values: [[value]] };
-  });
+  // buildA1 lo phần tên tab + dấu nháy — chỗ 8 bản fork trong packflow đều viết sai.
+  const data = sets.map(({ cell, value }) => ({ range: buildA1(sheet.title, cell), values: [[value]] }));
 
   const res = await batchUpdateValues(client, id, data);
   if (flags.json) json({ sheet, ...res });

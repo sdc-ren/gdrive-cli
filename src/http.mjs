@@ -175,7 +175,7 @@ function pathOf(url) {
  * @param {Record<string,string>} [opts.headers]
  * @param {'json'|'buffer'|'text'|'raw'} [opts.responseType]
  * @param {number} [opts.retries]        mặc định 0 — thư viện tự retry ở tầng trên
- * @param {number} [opts.timeoutMs]      mặc định 30 giây
+ * @param {number} [opts.timeoutMs]      mặc định 30 giây; <= 0 = không timeout (không gắn AbortSignal)
  * @param {boolean} [opts.idempotent]    false cho append/create: không gửi lại khi mất trả lời
  * @param {typeof fetch} [opts.fetchImpl]
  */
@@ -239,7 +239,7 @@ async function once({ url, method, token, body, headers, responseType, timeoutMs
   };
 
   const res = await guard(() =>
-    fetchImpl(url, { method, headers: finalHeaders, body: payload, signal: AbortSignal.timeout(timeoutMs) }),
+    fetchImpl(url, { method, headers: finalHeaders, body: payload, signal: timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined }),
   );
 
   if (!res.ok) {

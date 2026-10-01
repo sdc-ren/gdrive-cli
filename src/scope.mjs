@@ -89,11 +89,12 @@ export function createScope({ folders, meta, now = Date.now, ttlMs = TTL_MS }) {
     let m = await meta.file(id);
     if (m.mimeType === MIME_SHORTCUT) {
       const targetId = m.shortcutDetails?.targetId;
-      if (!targetId) throw new ScopeError('OUT_OF_SCOPE', `Shortcut không có đích: "${m.name}" không trỏ tới file nào đọc được.`);
+      if (!targetId) throw new ScopeError('OUT_OF_SCOPE', 'Shortcut không có đích: không trỏ tới file nào đọc được.');
       m = await meta.file(targetId);
     }
     const root = await rootOf(m.id);
-    if (!root) throw new ScopeError('OUT_OF_SCOPE', `Ngoài phạm vi: "${m.name}" không thuộc folder nào được phép (${names()}).`);
+    // Không nêu tên file: file ngoài phạm vi thì đến tên cũng không được lộ ra.
+    if (!root) throw new ScopeError('OUT_OF_SCOPE', `Ngoài phạm vi: file không thuộc folder nào được phép (${names()}).`);
     return { fileId: m.id, root, meta: m };
   }
 

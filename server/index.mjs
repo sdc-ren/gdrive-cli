@@ -165,7 +165,7 @@ async function handle(msg) {
         // ném lỗi protocol khiến client coi như server hỏng.
         return ok(id, {
           isError: true,
-          content: [{ type: 'text', text: explain(err, snapshot) }],
+          content: [{ type: 'text', text: explain(err, snapshot, params?.name) }],
         });
       }
     }
@@ -176,14 +176,21 @@ async function handle(msg) {
   }
 }
 
+// Gợi ý khi không chắc lệnh ghi đã chạy chưa: kiểm tra cách nào tuỳ tool.
+const UNCERTAIN_HINT = {
+  drive_create: 'Dùng drive_ls <folder cha> để xem đã tạo chưa trước khi gọi lại.',
+  drive_move: 'Dùng drive_ls để kiểm tra vị trí hiện tại trước khi gọi lại.',
+  sheet_write: 'Đọc lại cuối bảng bằng drive_read trước khi gọi lại sheet_write.',
+};
+
 /** Thông điệp lỗi (dòng đầu `✗ …` từ renderError) kèm gợi ý hành động tiếp theo. */
-function explain(err, snapshot = state) {
+function explain(err, snapshot = state, toolName = null) {
   const email = snapshot.client?.identity?.clientEmail ?? null;
   const base = renderError(err, { email });
   if (/không tìm thấy credential|CredentialError/i.test(String(err?.message))) {
     return `${base}\nBảo người dùng chạy: gdrive init --sa-json <đường-dẫn-key.json> (Claude Code: skill /gdrive-setup). Không hỏi nội dung file key.`;
   }
-  if (err?.code === 'UNCERTAIN_WRITE') return `${base}\nĐọc lại cuối bảng bằng drive_read trước khi gọi lại sheet_write.`;
+  if (err?.code === 'UNCERTAIN_WRITE') return `${base}\n${UNCERTAIN_HINT[toolName] ?? UNCERTAIN_HINT.sheet_write}`;
   if (/storageQuotaExceeded/i.test(String(err?.message))) return `${base}\nService account không có dung lượng My Drive: folder đích phải nằm trên Shared Drive.`;
   return base;
 }

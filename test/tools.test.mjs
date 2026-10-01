@@ -92,7 +92,7 @@ test('drive_ls không path: liệt kê folder được phép; có path: nội du
 test('drive_ls folder rỗng danh sách → NO_FOLDERS hướng dẫn folder add', async () => {
   const { byName } = tools([]);
   await assert.rejects(byName.get('drive_ls').run({ path: 'x' }), (e) => e.code === 'NO_FOLDERS');
-  assert.equal(await byName.get('drive_ls').run({}), '# 0 folders');
+  await assert.rejects(byName.get('drive_ls').run({}), (e) => e.code === 'NO_FOLDERS' && /gdrive folder add/.test(e.message));
 });
 
 test('drive_read Google Sheet: TSV, lọc where, chọn cột, header # có tabs và next', async () => {
@@ -198,4 +198,38 @@ test('drive_move: không đổi tên/di chuyển folder gốc trong danh sách',
 test('folder rỗng: báo NO_FOLDERS trước khi dựng client (chưa có credential vẫn thấy gợi ý)', async () => {
   const list = buildTools({ getClient: () => { throw new Error('Không tìm thấy credential'); }, folders: [] });
   await assert.rejects(list.find((t) => t.name === 'drive_read').run({ target: 'abcdefghij' }), (e) => e.code === 'NO_FOLDERS');
+});
+
+test('sheet_write: chặn công thức IMPORT*/IMAGE trước mọi lời gọi API; công thức thường vẫn ghi', async () => {
+  const { byName, client } = tools(FOLDERS_RW);
+  await assert.rejects(byName.get('sheet_write').run({ target: 'sheet1aaaa', cells: { A1: '=IMPORTRANGE("x","A1")' } }), /IMPORT\*\/IMAGE/);
+  await assert.rejects(byName.get('sheet_write').run({ target: 'sheet1aaaa', append: [['ok', '=image("http://x")']] }), /IMPORT\*\/IMAGE/);
+  assert.equal(client.calls.length, 0, 'không gọi API nào');
+  assert.equal(await byName.get('sheet_write').run({ target: 'sheet1aaaa', cells: { A4: '=SUM(A1:A3)' } }), '✓ Sheet1: 1 cells, +0 rows');
+  const batch = client.calls.find((c) => /batchUpdate/.test(c.url));
+  assert.equal(batch.body.valueInputOption ?? 'USER_ENTERED', 'USER_ENTERED');
+});
+
+test('drive_create sheet: nội dung có IMPORTDATA bị chặn trước khi upload', async () => {
+  const { byName, client } = tools(FOLDERS_RW);
+  await assert.rejects(byName.get('drive_create').run({ parent: 'test-run', name: 'S', kind: 'sheet', content: 'a,b\n1,=IMPORTDATA("http://x")' }), /IMPORT\*\/IMAGE/);
+  await assert.rejects(byName.get('drive_create').run({ parent: 'test-run', name: 'S', kind: 'sheet', content: 'a\tb\n1\t=IMPORTDATA("http://x")' }), /IMPORT\*\/IMAGE/);
+  assert.equal(client.calls.filter((c) => /upload\//.test(c.url)).length, 0);
+  assert.equal(client.calls.length, 0, 'chặn trước cả lúc resolve parent');
+});
+
+test('shortcut trong folder write trỏ tới file ở folder read: sheet_write và drive_move đều READ_ONLY', async () => {
+  const extra = { shortRWaa: { id: 'shortRWaa', name: 'KPI link', mimeType: 'application/vnd.google-apps.shortcut', parents: ['rootAaaaa'], shortcutDetails: { targetId: 'sheetBaaaa' } } };
+  const { byName, client } = tools(FOLDERS_RW, fakeClient({ extra }));
+  await assert.rejects(byName.get('sheet_write').run({ target: 'shortRWaa', cells: { A1: 'x' } }), (e) => e.code === 'READ_ONLY');
+  await assert.rejects(byName.get('drive_move').run({ target: 'shortRWaa', new_name: 'y' }), (e) => e.code === 'READ_ONLY');
+  await assert.rejects(byName.get('drive_move').run({ target: 'shortRWaa', to: 'test-run' }), (e) => e.code === 'READ_ONLY');
+  assert.equal(client.calls.some((c) => c.method === 'PATCH' || /batchUpdate|:append/.test(c.url)), false);
+});
+
+test('drive_create: name rỗng/chỉ khoảng trắng bị từ chối trước mọi lời gọi API', async () => {
+  const { byName, client } = tools(FOLDERS_RW);
+  await assert.rejects(byName.get('drive_create').run({ parent: 'test-run', name: '   ', kind: 'folder' }), /name không được rỗng/);
+  await assert.rejects(byName.get('drive_create').run({ parent: 'test-run', name: '', kind: 'doc' }), /name không được rỗng/);
+  assert.equal(client.calls.length, 0);
 });

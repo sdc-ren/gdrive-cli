@@ -191,7 +191,10 @@ export function writeConfig(cfg, home = homedir(), env = process.env) {
   // và file chứa private key có mode 600 ngay từ byte đầu tiên thay vì theo umask rồi chmod.
   const tmp = `${file}.${process.pid}.tmp`;
   try {
-    writeFileSync(tmp, body, { mode: 0o600 });
+    // File tạm sót lại từ lần crash trước giữ nguyên quyền cũ (mode chỉ áp khi TẠO file):
+    // xoá trước, rồi tạo mới độc quyền (wx) để private key có 600 ngay từ đầu.
+    rmSync(tmp, { force: true });
+    writeFileSync(tmp, body, { mode: 0o600, flag: 'wx' });
     renameSync(tmp, file);
   } catch (err) {
     // Không để file tạm chứa private key nằm lại trên đĩa khi ghi/rename lỗi.

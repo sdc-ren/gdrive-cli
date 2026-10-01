@@ -14,8 +14,11 @@ const UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 const MULTIPART_LIMIT = 5 * 1024 * 1024;
 
 // Timeout cho tải/xuất nội dung: timeout của request bao cả lúc đọc body nên 30 s mặc định
-// sẽ cắt ngang file lớn.
+// sẽ cắt ngang file lớn. Chỗ gọi ghi đè được; 0 = không timeout (CLI: người dùng tự chờ).
 const DOWNLOAD_TIMEOUT_MS = 120_000;
+
+/** Timeout cho upload theo kích thước: giả định mạng tối thiểu 256 KiB/s, sàn 120 s. */
+export const transferTimeoutMs = (bytes) => Math.max(120_000, Math.ceil(bytes / (256 * 1024)) * 1000);
 
 export const FILE_FIELDS =
   'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,driveId,parents,' +
@@ -74,21 +77,21 @@ export async function listFiles(
 }
 
 /** Tải nội dung nhị phân của file đã upload (không phải file native của Google). */
-export async function downloadFile(client, fileId) {
+export async function downloadFile(client, fileId, { timeoutMs = DOWNLOAD_TIMEOUT_MS } = {}) {
   return client.api({
     url: `${BASE}/files/${encodeURIComponent(fileId)}${buildQuery({ alt: 'media', ...SHARED_DRIVE_PARAMS })}`,
     responseType: 'buffer',
     // Timeout tính cả lúc đọc body — file lớn cần rộng hơn mặc định 30 s.
-    timeoutMs: DOWNLOAD_TIMEOUT_MS,
+    timeoutMs,
   });
 }
 
 /** Xuất file native của Google (Docs/Sheets/Slides) sang một mimeType khác. */
-export async function exportFile(client, fileId, mimeType) {
+export async function exportFile(client, fileId, mimeType, { timeoutMs = DOWNLOAD_TIMEOUT_MS } = {}) {
   return client.api({
     url: `${BASE}/files/${encodeURIComponent(fileId)}/export${buildQuery({ mimeType })}`,
     responseType: 'buffer',
-    timeoutMs: DOWNLOAD_TIMEOUT_MS,
+    timeoutMs,
   });
 }
 
@@ -152,6 +155,7 @@ export async function uploadFile(
       url: `${UPLOAD_BASE}/files${buildQuery({ uploadType: 'multipart', ...params })}`,
       method: 'POST',
       idempotent: false,
+      timeoutMs: transferTimeoutMs(buffer.length),
       body: multipartBody(metadata, buffer, mimeType, boundary),
       headers: { 'content-type': `multipart/related; boundary=${boundary}` },
     });
@@ -176,6 +180,7 @@ export async function uploadFile(
     url: location,
     method: 'PUT',
     idempotent: false,
+    timeoutMs: transferTimeoutMs(buffer.length),
     body: buffer,
     headers: { 'content-type': mimeType, 'content-length': String(buffer.length) },
   });

@@ -81,7 +81,7 @@ test('file trong folder con ở độ sâu 2 thuộc phạm vi; file ngoài bị
   assert.equal(r.gid, '7');
   assert.equal(r.root.name, 'test-run');
   assert.equal(r.meta.name, 'TC_login');
-  await assert.rejects(scope.resolve('fileOutside'), (e) => e.code === 'OUT_OF_SCOPE' && /test-run, bao-cao/.test(e.message));
+  await assert.rejects(scope.resolve('fileOutside'), (e) => e.code === 'OUT_OF_SCOPE' && /test-run, bao-cao/.test(e.message) && !/secret/.test(e.message));
 });
 
 test('cache tổ tiên: resolve lần hai cùng file không gọi file() cho tổ tiên nữa', async () => {
@@ -110,7 +110,7 @@ test('alias và đường dẫn: "test-run" là chính folder, "test-run/sub/TC_
 
 test('shortcut trong phạm vi trỏ ra ngoài → OUT_OF_SCOPE (Review Focus 2)', async () => {
   const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
-  await assert.rejects(scope.resolve('shortcutToOut'), (e) => e.code === 'OUT_OF_SCOPE');
+  await assert.rejects(scope.resolve('shortcutToOut'), (e) => e.code === 'OUT_OF_SCOPE' && !/secret/.test(e.message));
 });
 
 test('nhiều parents, một nằm trong phạm vi → thuộc phạm vi (Review Focus 3)', async () => {
@@ -150,7 +150,7 @@ test('parent lỗi không phải 404 (500) được ném lên, không bị nuố
 
 test('shortcut không có targetId → OUT_OF_SCOPE', async () => {
   const scope = createScope({ folders: FOLDERS, meta: fakeMeta() });
-  await assert.rejects(scope.resolve('brokenShortcut'), (e) => e.code === 'OUT_OF_SCOPE' && /Shortcut không có đích/.test(e.message));
+  await assert.rejects(scope.resolve('brokenShortcut'), (e) => e.code === 'OUT_OF_SCOPE' && /Shortcut không có đích/.test(e.message) && !/hong/.test(e.message));
 });
 
 test('vòng bị cắt không cache null: B thuộc phạm vi qua A sau khi resolve A', async () => {

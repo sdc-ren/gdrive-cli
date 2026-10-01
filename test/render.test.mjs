@@ -59,3 +59,10 @@ test('renderError: ScopeError, 403 có email, lỗi thường', () => {
   assert.equal(renderError(new Error('lạ')), '✗ lạ');
   assert.match(renderError(Object.assign(new Error('x'), { code: 'UNCERTAIN_WRITE' })), /^✗ x/);
 });
+
+test('renderError: 403 giới hạn tốc độ không bị báo nhầm là "chưa share"', () => {
+  const rl = Object.assign(new Error('User rate limit exceeded.'), { code: 403, reason: 'userRateLimitExceeded' });
+  assert.equal(renderError(rl, { email: 'sa@p' }), '✗ Drive giới hạn tốc độ, thử lại sau');
+  const perm = Object.assign(new Error('nope'), { code: 403, reason: 'forbidden' });
+  assert.match(renderError(perm), /chưa share/);
+});

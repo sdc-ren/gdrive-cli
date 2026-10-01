@@ -2,6 +2,7 @@
 // mô tả ngữ cảnh; lỗi bắt đầu bằng `✗`.
 
 import { MIME } from './formats.mjs';
+import { isRateLimited } from './http.mjs';
 import { toTsv } from './table-view.mjs';
 
 const CODE_BY_MIME = {
@@ -69,6 +70,8 @@ export function renderError(err, { email = null } = {}) {
   const msg = String(err?.message ?? err).split('\n')[0];
   const code = Number(err?.code);
   if (err?.name === 'ScopeError') return `✗ ${msg}`;
+  // Drive báo quota per-user bằng 403: phải xét trước nhánh "chưa share" không thì gợi ý sai.
+  if (isRateLimited(err)) return '✗ Drive giới hạn tốc độ, thử lại sau';
   if (code === 403 || code === 404) {
     return `✗ ${code}: chưa share cho ${email ?? 'service account'} (Viewer để đọc, Editor để ghi). ${msg}`;
   }

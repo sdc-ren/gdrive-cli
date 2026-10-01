@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { parseArgs } from '../bin/cli.mjs';
+import { parseArgs, parseSets } from '../bin/cli.mjs';
 import { classify, exportMimeFor, KIND, MIME } from '../src/formats.mjs';
 
 test('phân loại file native của Google', () => {
@@ -95,4 +95,10 @@ test('parseArgs: cờ boolean đứng ngay trước tham số vị trí không n
   const f = parseArgs(['ls', '--json', 'https://drive/folders/abc']);
   assert.equal(f.json, true);
   assert.deepEqual(f._, ['ls', 'https://drive/folders/abc']);
+});
+
+test('parseSets: tách --set Ô=giá trị; thiếu hoặc sai cú pháp → exit 2', () => {
+  assert.deepEqual(parseSets(parseArgs(['write', 'u', '--set', 'L5=PASS', '--set', 'A1=a=b'])), [{ cell: 'L5', value: 'PASS' }, { cell: 'A1', value: 'a=b' }]);
+  assert.throws(() => parseSets(parseArgs(['write', 'u'])), (e) => e.exitCode === 2 && /Thiếu --set/.test(e.message));
+  assert.throws(() => parseSets(parseArgs(['write', 'u', '--set', 'L5'])), (e) => e.exitCode === 2 && /sai cú pháp/.test(e.message));
 });

@@ -63,3 +63,14 @@ export async function resolveCliListTarget({ client, target, folders = [], creat
   const { id } = await resolveCliTarget({ client, input: target, folders, createMeta });
   return { folderId: id };
 }
+
+/**
+ * `gdrive ls --query` nối mệnh đề `q` thô vào sau `'<id>' in parents` bằng AND, nhưng
+ * `... or ...` trong đó vẫn mở rộng ra ngoài folder. Có danh sách folder thì cấm hẳn.
+ */
+export function assertCliQueryAllowed({ query, folders = [] }) {
+  if (!query || !folders.length) return;
+  const e = new Error('--query không dùng được khi đã cấu hình folder (có thể thoát khỏi phạm vi).');
+  e.exitCode = 2;
+  throw e;
+}

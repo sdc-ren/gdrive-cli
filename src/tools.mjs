@@ -8,6 +8,7 @@ import { createMetaStore } from './meta.mjs';
 import { readDocument, readTable } from './read-document.mjs';
 import { renderDoc, renderFolders, renderLs, renderTable } from './render.mjs';
 import { createScope, NO_FOLDERS_MESSAGE, ScopeError } from './scope.mjs';
+import { assertSafeCellValue, assertSafeTable } from './sheet-guard.mjs';
 import { appendValues, batchUpdateValues, getValues, pickSheet } from './sheets.mjs';
 import { viewTable } from './table-view.mjs';
 import { buildA1 } from './url.mjs';
@@ -72,7 +73,10 @@ export function buildTools({ getClient, folders, now = Date.now }) {
         additionalProperties: false,
       },
       async run(args) {
-        if (!args.path) return renderFolders(folders);
+        if (!args.path) {
+          if (!folders.length) throw new ScopeError('NO_FOLDERS', NO_FOLDERS_MESSAGE);
+          return renderFolders(folders);
+        }
         const { client, scope } = ctx();
         const { fileId, root, meta: m } = await scope.resolve(args.path);
         if (m.mimeType !== MIME.FOLDER) throw new ScopeError('NOT_FOUND', `"${m.name}" không phải folder. Dùng drive_read để đọc.`);
@@ -136,6 +140,8 @@ export function buildTools({ getClient, folders, now = Date.now }) {
         const cells = Object.entries(args.cells ?? {});
         const rows = Array.isArray(args.append) ? args.append : [];
         if (!cells.length && !rows.length) throw new Error('Cần cells hoặc append — không có gì để ghi.');
+        for (const [, v] of cells) assertSafeCellValue(v);
+        for (const r of rows) for (const v of r) assertSafeCellValue(v);
         const { client, meta, scope } = ctx();
         const { fileId, gid, meta: m } = await scope.resolve(args.target);
         await scope.assertWrite(fileId);
@@ -170,6 +176,8 @@ export function buildTools({ getClient, folders, now = Date.now }) {
       },
       async run(args) {
         if (!['folder', 'doc', 'sheet'].includes(args.kind)) throw new Error('kind phải là folder, doc hoặc sheet.');
+        if (!String(args.name ?? '').trim()) throw new Error('name không được rỗng.');
+        if (args.kind === 'sheet') assertSafeTable(args.content);
         const { client, meta, scope } = ctx();
         const { fileId: parentId, meta: pm } = await scope.resolve(args.parent);
         await scope.assertWrite(parentId);
