@@ -1518,7 +1518,7 @@ Các test Review Focus 1, 4, 5 nằm trong `test/table-view.test.mjs`; Review Fo
 
 ### Task 7: Kiểm chứng API thật phần ghi (cần người dùng)
 
-Chặn `drive_create` và `drive_move` ở Task 9 cho tới khi có kết quả. Phần đọc và `sheet_write` không bị chặn.
+ĐÃ CHẠY 2026-10-01 trên folder My Drive của người dùng: tạo folder OK, đổi tên OK, di chuyển OK, tạo Doc/Sheet FAIL 403 `storageQuotaExceeded` (đã đưa vào thiết kế `drive_create`). Còn thiếu `values.append`/`values.batchUpdate`: cần người dùng tạo một Google Sheet trống trong folder đó rồi chạy lại script với `--sheet <url>`. Không chặn task nào.
 
 **Files:**
 - Create: `bench/verify-write.mjs` (script tạm, không nằm trong `package.json#files`)
@@ -1844,7 +1844,8 @@ const GSHEET = 'application/vnd.google-apps.spreadsheet';
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 const FILES = {
-  rootA: { id: 'rootA', name: 'Test Run', mimeType: FOLDER, parents: [] },
+  rootA: { id: 'rootA', name: 'Test Run', mimeType: FOLDER, parents: [], driveId: 'sd1' },
+  rootC: { id: 'rootC', name: 'My Drive folder', mimeType: FOLDER, parents: [] },
   sheet1: { id: 'sheet1', name: 'TC_login', mimeType: GSHEET, parents: ['rootA'], modifiedTime: '2026-09-30T00:00:00Z' },
   book1: { id: 'book1', name: 'report.xlsx', mimeType: XLSX, parents: ['rootA'], size: '2048' },
   rootB: { id: 'rootB', name: 'Bao cao', mimeType: FOLDER, parents: [] },
@@ -1890,7 +1891,7 @@ function fakeClient() {
   return client;
 }
 
-const FOLDERS_RW = [{ name: 'test-run', id: 'rootA', access: 'write' }, { name: 'bao-cao', id: 'rootB', access: 'read' }];
+const FOLDERS_RW = [{ name: 'test-run', id: 'rootA', access: 'write' }, { name: 'bao-cao', id: 'rootB', access: 'read' }, { name: 'my-drive', id: 'rootC', access: 'write' }];
 const FOLDERS_RO = [{ name: 'bao-cao', id: 'rootB', access: 'read' }];
 const tools = (folders, client = fakeClient()) => {
   const list = buildTools({ getClient: () => client, folders });
@@ -1907,7 +1908,7 @@ test('tool ghi chỉ xuất hiện khi có folder write; schema gọn', () => {
 
 test('drive_ls không path: liệt kê folder được phép; có path: nội dung folder dạng một dòng mỗi mục', async () => {
   const { byName } = tools(FOLDERS_RW);
-  assert.equal(await byName.get('drive_ls').run({}), '# 2 folders\nd test-run (write) rootA\nd bao-cao (read) rootB');
+  assert.equal(await byName.get('drive_ls').run({}), '# 3 folders\nd test-run (write) rootA\nd bao-cao (read) rootB\nd my-drive (write) rootC');
   const out = await byName.get('drive_ls').run({ path: 'test-run' });
   assert.equal(out.split('\n')[0], '# test-run (write) · 2');
   assert.ok(out.includes('s TC_login sheet1 2026-09-30'));
@@ -1970,6 +1971,11 @@ test('drive_create: folder/doc/sheet trong folder write, TSV → CSV; folder rea
   assert.match(upload.body.toString('utf8'), /"mimeType":"application\/vnd\.google-apps\.spreadsheet"/);
   assert.match(upload.body.toString('utf8'), /a,b\r?\n1,2/);
   await assert.rejects(byName.get('drive_create').run({ parent: 'bao-cao', name: 'x', kind: 'folder' }), (e) => e.code === 'READ_ONLY');
+  // Đo thật 2026-10-01: My Drive tạo folder được, tạo Doc/Sheet bị storageQuotaExceeded → chặn trước khi gọi API.
+  assert.match(await byName.get('drive_create').run({ parent: 'my-drive', name: 'Q5', kind: 'folder' }), /^✓ folder Q5/);
+  const callsBefore = client.calls.length;
+  await assert.rejects(byName.get('drive_create').run({ parent: 'my-drive', name: 'd', kind: 'doc', content: 'x' }), /Shared Drive/);
+  assert.equal(client.calls.filter((c) => /upload\//.test(c.url)).length, client.calls.slice(0, callsBefore).filter((c) => /upload\//.test(c.url)).length, 'không gọi upload khi biết trước sẽ thất bại');
   await assert.rejects(byName.get('drive_create').run({ parent: 'test-run', name: 'x', kind: 'pdf' }), /kind/);
 });
 
@@ -2176,6 +2182,11 @@ export function buildTools({ getClient, folders, now = Date.now }) {
         const { fileId: parentId, meta: pm } = await scope.resolve(args.parent);
         await scope.assertWrite(parentId);
         if (pm.mimeType !== MIME.FOLDER) throw new Error(`"${pm.name}" không phải folder.`);
+        // Service account không có dung lượng My Drive: tạo Doc/Sheet chỉ được trên Shared Drive
+        // (đo thật 2026-10-01: folder thì tạo được, Doc/Sheet bị 403 storageQuotaExceeded).
+        if (args.kind !== 'folder' && !pm.driveId) {
+          throw new Error(`Không tạo được ${args.kind} trong "${pm.name}": folder nằm trên My Drive, service account không có dung lượng. Dùng folder trên Shared Drive, hoặc người dùng tự tạo file rồi share.`);
+        }
         let file;
         if (args.kind === 'folder') {
           file = await createFolder(client, { name: args.name, parentId });
