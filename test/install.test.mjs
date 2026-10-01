@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -15,6 +15,7 @@ import {
   pluginDataDir,
   readConfig,
   readConfigWithSource,
+  writeConfig,
 } from '../src/config.mjs';
 import { runInit, validateServiceAccountJson } from '../src/init.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
@@ -430,5 +431,16 @@ test('uninstall --purge: xoá cả config trung lập và cảnh báo mọi clie
     runUninstall({ purge: true }, { home, log: (l) => logs.push(l), env });
     assert.equal(existsSync(file), false);
     assert.match(logs.join('\n'), /Codex, Cursor/);
+  });
+});
+
+test('writeConfig: không để lại file tạm, file cuối có mode 600 ngay từ đầu, ghi đè nguyên tử', async () => {
+  await sandbox(async ({ home, env }) => {
+    const file = writeConfig({ clientEmail: 'a@x.com', privateKey: 'k1' }, home, env);
+    const again = writeConfig({ clientEmail: 'a@x.com', privateKey: 'k2' }, home, env);
+    assert.equal(file, again);
+    assert.deepEqual(readdirSync(join(file, '..')), ['config.json'], 'không còn file .tmp');
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).privateKey, 'k2');
+    if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600);
   });
 });

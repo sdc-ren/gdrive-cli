@@ -12,7 +12,7 @@
 // Máy có cả plugin Claude lẫn client khác thì mọi bên dùng CHUNG một file: chỉ ghi mới
 // vào thư mục trung lập khi chưa có file nào đang được đọc.
 
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, normalize } from 'node:path';
 
@@ -187,7 +187,11 @@ export function writeConfig(cfg, home = homedir(), env = process.env) {
   const file = writeTargetPath(home, env);
   const body = `${JSON.stringify(cfg, null, 2)}\n`;
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  writeFileSync(file, body);
+  // Ghi file tạm cùng thư mục rồi rename: server đang chạy không bao giờ đọc được file dở,
+  // và file chứa private key có mode 600 ngay từ byte đầu tiên thay vì theo umask rồi chmod.
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, body, { mode: 0o600 });
+  renameSync(tmp, file);
   if (process.platform !== 'win32') chmodSync(file, 0o600);
   return file;
 }
