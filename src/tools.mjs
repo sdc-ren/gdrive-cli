@@ -7,7 +7,7 @@ import { classify, KIND, MIME } from './formats.mjs';
 import { createMetaStore } from './meta.mjs';
 import { readDocument, readTable } from './read-document.mjs';
 import { renderDoc, renderFolders, renderLs, renderTable } from './render.mjs';
-import { createScope, ScopeError } from './scope.mjs';
+import { createScope, NO_FOLDERS_MESSAGE, ScopeError } from './scope.mjs';
 import { appendValues, batchUpdateValues, getValues, pickSheet } from './sheets.mjs';
 import { viewTable } from './table-view.mjs';
 import { buildA1 } from './url.mjs';
@@ -29,6 +29,8 @@ export function buildTools({ getClient, folders, now = Date.now }) {
   let meta = null;
   let scope = null;
   const ctx = () => {
+    // Trước getClient(): chưa có folder thì gợi ý `folder add` dù credential chưa cấu hình.
+    if (!folders.length) throw new ScopeError('NO_FOLDERS', NO_FOLDERS_MESSAGE);
     const client = getClient();
     meta ??= createMetaStore({ client, now });
     scope ??= createScope({ folders, meta, now });
@@ -214,6 +216,10 @@ export function buildTools({ getClient, folders, now = Date.now }) {
         if (!args.new_name && !args.to) throw new Error('Cần new_name hoặc to.');
         const { client, meta, scope } = ctx();
         const { fileId, meta: m } = await scope.resolve(args.target);
+        const rootFolder = folders.find((f) => f.id === fileId);
+        if (rootFolder) {
+          throw new ScopeError('READ_ONLY', `Không đổi tên/di chuyển folder gốc "${rootFolder.name}" trong danh sách được phép. Sửa bằng: gdrive folder remove/add.`);
+        }
         await scope.assertWrite(fileId);
         let dest = null;
         if (args.to) {
@@ -222,10 +228,18 @@ export function buildTools({ getClient, folders, now = Date.now }) {
           await scope.assertWrite(r.fileId);
           dest = r;
         }
+        let removeParents = null;
+        if (dest) {
+          // parents trong cache có thể cũ (5 phút): lấy lại, nếu không file có thể nằm ở 2 folder.
+          meta.invalidate(fileId);
+          const fresh = await meta.file(fileId);
+          if (!fresh.parents?.length) throw new Error(`Không xác định được folder hiện tại của "${m.name}" — không di chuyển.`);
+          removeParents = fresh.parents.filter((p) => p !== dest.fileId).join(',') || null;
+        }
         await updateFile(client, fileId, {
           name: args.new_name ?? null,
           addParents: dest?.fileId ?? null,
-          removeParents: dest ? (m.parents ?? []).join(',') || null : null,
+          removeParents,
         });
         scope.invalidateAll();
         meta.invalidate(fileId);

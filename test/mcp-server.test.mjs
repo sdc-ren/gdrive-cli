@@ -449,10 +449,14 @@ test('config đổi folder write → read: tool ghi biến mất và tools/call 
 });
 
 test('tools/call lỗi credential rồi đóng stdin ngay vẫn trả response và exit 0', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
+  // Có folder nhưng KHÔNG có credential (undefined bị JSON.stringify bỏ đi): không có folder
+  // thì tool báo NO_FOLDERS trước khi dựng client.
+  writeConfig(home, { clientEmail: undefined, privateKey: undefined, folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'read' }] });
   const { msgs, code } = await talk([
     INIT,
     { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'drive_read', arguments: { target: 'abcdefghij' } } },
-  ]);
+  ], { home });
   const res = msgs.find((m) => m.id === 7);
   assert.equal(code, 0);
   assert.equal(res.result.isError, true);

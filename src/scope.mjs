@@ -22,6 +22,8 @@ const TTL_MS = 10 * 60_000;
 
 const isNotFound = (err) => err?.status === 404 || err?.code === 404;
 
+export const NO_FOLDERS_MESSAGE = 'Chưa có folder nào được phép. Chạy: gdrive folder add <url-folder> [--access write]';
+
 export class ScopeError extends Error {
   constructor(code, message) {
     super(message);
@@ -38,7 +40,7 @@ export function createScope({ folders, meta, now = Date.now, ttlMs = TTL_MS }) {
 
   function requireFolders() {
     if (!folders.length) {
-      throw new ScopeError('NO_FOLDERS', 'Chưa có folder nào được phép. Chạy: gdrive folder add <url-folder> [--access write]');
+      throw new ScopeError('NO_FOLDERS', NO_FOLDERS_MESSAGE);
     }
   }
 

@@ -25,10 +25,15 @@ const xlsxBuf = () => makeZip([
   { name: 'xl/worksheets/sheet1.xml', data: `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>k</t></is></c></row><row r="2"><c r="A2"><v>42</v></c></row></sheetData></worksheet>` },
 ]);
 
-function fakeClient() {
+// `extra`: file bổ sung cho riêng một test. `onGet(id, n, file)`: đổi kết quả lần GET thứ n
+// của file `id` (mô phỏng metadata trên Drive đã đổi so với cache).
+function fakeClient({ extra = {}, onGet = null } = {}) {
   const calls = [];
+  const all = { ...FILES, ...extra };
+  const gets = new Map();
   const client = {
     calls,
+    gets,
     identity: { clientEmail: 'sa@p.iam.gserviceaccount.com' },
     async api(opts) {
       calls.push(opts);
@@ -37,8 +42,10 @@ function fakeClient() {
       if ((m = /drive\/v3\/files\/([^/?]+)\?.*alt=media/.exec(u))) return xlsxBuf();
       if ((m = /drive\/v3\/files\/([^/?]+)\?/.exec(u)) && opts.method === 'PATCH') return { id: m[1], ...opts.body };
       if ((m = /drive\/v3\/files\/([^/?]+)\?/.exec(u))) {
-        if (!FILES[m[1]]) { const e = new Error('not found'); e.code = 404; throw e; }
-        return FILES[m[1]];
+        if (!all[m[1]]) { const e = new Error('not found'); e.code = 404; throw e; }
+        const n = (gets.get(m[1]) ?? 0) + 1;
+        gets.set(m[1], n);
+        return onGet ? onGet(m[1], n, all[m[1]]) : all[m[1]];
       }
       // upload và POST tạo folder phải đứng trước nhánh list: URL của chúng cũng khớp `files?`.
       if (/upload\/drive\/v3\/files/.test(u)) return { id: 'new1aaaa', name: 'new', webViewLink: 'https://drive.google.com/x' };
@@ -46,7 +53,7 @@ function fakeClient() {
       if (/drive\/v3\/files\?/.test(u)) {
         // URLSearchParams mã hoá khoảng trắng thành '+'.
         const folder = /'([^']+)' in parents/.exec(decodeURIComponent(u.replace(/\+/g, ' ')))?.[1];
-        return { files: Object.values(FILES).filter((f) => f.parents.includes(folder)), nextPageToken: null };
+        return { files: Object.values(all).filter((f) => (f.parents ?? []).includes(folder)), nextPageToken: null };
       }
       if (/spreadsheets\/[^/]+\?fields/.test(u)) return { properties: { title: 'TC_login' }, sheets: [{ properties: { sheetId: 0, title: 'Sheet1', index: 0 } }, { properties: { sheetId: 9, title: 'Data', index: 1 } }] };
       if (/values:batchUpdate/.test(u)) return { totalUpdatedCells: opts.body.data.length, responses: [] };
@@ -152,7 +159,8 @@ test('drive_move: đổi tên và chuyển folder; đích phải là folder writ
   assert.match(out, /^✓ TC_login_v2 → test-run/);
   const patch = client.calls.find((c) => c.method === 'PATCH');
   assert.match(patch.url, /addParents=rootAaaaa/);
-  assert.match(patch.url, /removeParents=rootAaaaa/);
+  assert.doesNotMatch(patch.url, /removeParents=/, 'chuyển vào chính folder hiện tại: không gỡ parent nào');
+  assert.equal(client.gets.get('sheet1aaaa'), 2, 'parents lấy lại từ Drive, không dùng cache');
   await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa', to: 'bao-cao' }), (e) => e.code === 'READ_ONLY');
   await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa', to: 'sheetBaaaa' }), /không phải folder/);
   await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa' }), /new_name hoặc to/);
@@ -161,4 +169,33 @@ test('drive_move: đổi tên và chuyển folder; đích phải là folder writ
 test('không tool nào có tham số đường dẫn trên máy', () => {
   const schemas = JSON.stringify(buildTools({ getClient: () => null, folders: FOLDERS_RW }).map((t) => t.inputSchema));
   assert.doesNotMatch(schemas, /dest_path|local_path/);
+});
+
+const SUB = { subAaaaaa: { id: 'subAaaaaa', name: 'Sub', mimeType: FOLDER, parents: ['rootAaaaa'] } };
+
+test('drive_move: chuyển từ folder gốc sang folder con → addParents=con, removeParents=gốc', async () => {
+  const { byName, client } = tools(FOLDERS_RW, fakeClient({ extra: SUB }));
+  const out = await byName.get('drive_move').run({ target: 'sheet1aaaa', to: 'test-run/Sub' });
+  assert.match(out, /^✓ TC_login → test-run\/…\/Sub/);
+  const patch = client.calls.find((c) => c.method === 'PATCH');
+  assert.match(patch.url, /addParents=subAaaaaa/);
+  assert.match(patch.url, /removeParents=rootAaaaa(&|$)/);
+});
+
+test('drive_move: parents lấy lại thấy rỗng → từ chối, không PATCH', async () => {
+  const onGet = (id, n, f) => (id === 'sheet1aaaa' && n > 1 ? { ...f, parents: undefined } : f);
+  const { byName, client } = tools(FOLDERS_RW, fakeClient({ extra: SUB, onGet }));
+  await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa', to: 'test-run/Sub' }), /Không xác định/);
+  assert.equal(client.calls.some((c) => c.method === 'PATCH'), false);
+});
+
+test('drive_move: không đổi tên/di chuyển folder gốc trong danh sách', async () => {
+  const { byName, client } = tools(FOLDERS_RW);
+  await assert.rejects(byName.get('drive_move').run({ target: 'test-run', new_name: 'x' }), (e) => e.code === 'READ_ONLY');
+  assert.equal(client.calls.some((c) => c.method === 'PATCH'), false);
+});
+
+test('folder rỗng: báo NO_FOLDERS trước khi dựng client (chưa có credential vẫn thấy gợi ý)', async () => {
+  const list = buildTools({ getClient: () => { throw new Error('Không tìm thấy credential'); }, folders: [] });
+  await assert.rejects(list.find((t) => t.name === 'drive_read').run({ target: 'abcdefghij' }), (e) => e.code === 'NO_FOLDERS');
 });
