@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildQuery, GoogleApiError, isTransient, request } from '../src/http.mjs';
+import {
+  buildQuery,
+  createLimiter,
+  GoogleApiError,
+  isRetryable,
+  isTransient,
+  request,
+  retryDelayMs,
+  TimeoutError,
+  UncertainWriteError,
+} from '../src/http.mjs';
 
 function res({ ok = true, status = 200, body = '{}', headers = {} } = {}) {
   return {
@@ -93,7 +103,7 @@ test('retries>0 KHÔNG thử lại lỗi vĩnh viễn (403)', async () => {
   let calls = 0;
   const fetchImpl = async () => {
     calls++;
-    return res({ ok: false, status: 403, body: '{"error":{"message":"no access"}}' });
+    return res({ ok: false, status: 403, body: '{"error":{"message":"no access","errors":[{"reason":"forbidden"}]}}' });
   };
   await assert.rejects(request({ url: 'https://x.test', fetchImpl, retries: 3, sleepImpl: async () => {} }));
   assert.equal(calls, 1);
@@ -132,4 +142,91 @@ test('responseType raw trả nguyên Response để đọc header', async () => 
 test('response rỗng (204) trả object rỗng chứ không nổ JSON.parse', async () => {
   const fetchImpl = async () => res({ status: 204, body: '' });
   assert.deepEqual(await request({ url: 'https://x.test', fetchImpl }), {});
+});
+
+const rateLimited = () =>
+  res({ ok: false, status: 403, body: '{"error":{"message":"Rate Limit Exceeded","errors":[{"reason":"userRateLimitExceeded"}]}}' });
+
+test('403 giới hạn tốc độ của Drive ĐƯỢC thử lại; 403 thiếu quyền thì KHÔNG', async () => {
+  let calls = 0;
+  const fetchImpl = async () => (++calls < 3 ? rateLimited() : res({ body: '{"ok":true}' }));
+  await request({ url: 'https://x.test', fetchImpl, retries: 3, sleepImpl: async () => {} });
+  assert.equal(calls, 3);
+
+  calls = 0;
+  const denied = async () => { calls++; return res({ ok: false, status: 403, body: '{"error":{"message":"no access","errors":[{"reason":"forbidden"}]}}' }); };
+  await assert.rejects(request({ url: 'https://x.test', fetchImpl: denied, retries: 3, sleepImpl: async () => {} }));
+  assert.equal(calls, 1);
+});
+
+test('Retry-After được tôn trọng, backoff có jitter trong [exp/2, exp] và không vượt trần', async () => {
+  const delays = [];
+  let calls = 0;
+  const fetchImpl = async () =>
+    ++calls === 1
+      ? res({ ok: false, status: 429, body: '{}', headers: { 'retry-after': '2' } })
+      : res({ body: '{}' });
+  await request({ url: 'https://x.test', fetchImpl, retries: 2, sleepImpl: async (ms) => { delays.push(ms); } });
+  assert.deepEqual(delays, [2000]);
+
+  assert.equal(retryDelayMs(0, null, { baseDelayMs: 500, random: () => 0 }), 250);
+  assert.equal(retryDelayMs(0, null, { baseDelayMs: 500, random: () => 1 }), 500);
+  assert.equal(retryDelayMs(10, null, { baseDelayMs: 500, maxDelayMs: 16_000, random: () => 1 }), 16_000);
+  assert.equal(retryDelayMs(0, '120', { maxDelayMs: 16_000 }), 16_000, 'header lớn vẫn bị kẹp trần');
+});
+
+test('timeout: fetch treo quá timeoutMs thì lỗi ETIMEDOUT và được thử lại khi idempotent', async () => {
+  let calls = 0;
+  const hang = (url, init) =>
+    new Promise((resolve, reject) => {
+      calls++;
+      if (calls === 2) return resolve(res({ body: '{"ok":true}' }));
+      init.signal.addEventListener('abort', () => reject(init.signal.reason));
+    });
+  const out = await request({ url: 'https://x.test', fetchImpl: hang, retries: 1, timeoutMs: 20, sleepImpl: async () => {} });
+  assert.deepEqual(out, { ok: true });
+  assert.equal(calls, 2);
+
+  calls = 0;
+  await assert.rejects(
+    request({ url: 'https://x.test', fetchImpl: hang, retries: 0, timeoutMs: 20 }),
+    (e) => e instanceof TimeoutError && e.code === 'ETIMEDOUT',
+  );
+});
+
+test('request KHÔNG idempotent: timeout → UNCERTAIN_WRITE không thử lại; 429 vẫn thử lại', async () => {
+  let calls = 0;
+  const hang = (url, init) => new Promise((_, reject) => { calls++; init.signal.addEventListener('abort', () => reject(init.signal.reason)); });
+  await assert.rejects(
+    request({ url: 'https://x.test', method: 'POST', fetchImpl: hang, retries: 3, timeoutMs: 20, idempotent: false, sleepImpl: async () => {} }),
+    (e) => e instanceof UncertainWriteError && e.code === 'UNCERTAIN_WRITE' && e.cause instanceof TimeoutError,
+  );
+  assert.equal(calls, 1, 'không được gửi lại một request có thể đã ghi');
+
+  calls = 0;
+  const throttled = async () => (++calls === 1 ? res({ ok: false, status: 429, body: '{}' }) : res({ body: '{}' }));
+  await request({ url: 'https://x.test', method: 'POST', fetchImpl: throttled, retries: 3, idempotent: false, sleepImpl: async () => {} });
+  assert.equal(calls, 2);
+});
+
+test('isRetryable: phân loại đúng theo idempotent', () => {
+  const e503 = new GoogleApiError(503, {});
+  const e403rl = new GoogleApiError(403, { error: { errors: [{ reason: 'rateLimitExceeded' }] } });
+  const e403 = new GoogleApiError(403, { error: { errors: [{ reason: 'forbidden' }] } });
+  const net = new TypeError('fetch failed');
+  assert.equal(isRetryable(e503, { idempotent: true }), true);
+  assert.equal(isRetryable(e503, { idempotent: false }), true);
+  assert.equal(isRetryable(e403rl, { idempotent: false }), true);
+  assert.equal(isRetryable(e403, { idempotent: true }), false);
+  assert.equal(isRetryable(net, { idempotent: true }), true);
+  assert.equal(isRetryable(net, { idempotent: false }), false);
+});
+
+test('createLimiter: không quá N việc chạy cùng lúc', async () => {
+  const limit = createLimiter(2);
+  let active = 0, peak = 0;
+  const job = () => limit(async () => { active++; peak = Math.max(peak, active); await new Promise((r) => setTimeout(r, 5)); active--; return 1; });
+  const out = await Promise.all([job(), job(), job(), job(), job()]);
+  assert.equal(out.length, 5);
+  assert.equal(peak, 2);
 });
