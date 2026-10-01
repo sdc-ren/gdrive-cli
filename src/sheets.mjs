@@ -121,6 +121,8 @@ export async function appendValues(
   const res = await client.api({
     url: `${BASE}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:append${qs}`,
     method: 'POST',
+    // Gửi lại sẽ chèn thêm hàng trùng — không được tự retry.
+    idempotent: false,
     body: { values },
   });
   return {

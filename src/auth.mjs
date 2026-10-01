@@ -131,7 +131,6 @@ export function createTokenSource(credentials, { fetchImpl = fetch, now = Date.n
   }
 
   return {
-    credentials,
     quotaProjectId: credentials.quotaProjectId ?? null,
 
     /** Vứt token đang cache — dùng khi API trả 401 để thử lại đúng một lần. */

@@ -8,21 +8,9 @@
 console.log = console.error;
 console.info = console.error;
 
-const MIN_NODE = { major: 18, minor: 17, patch: 0 };
-
-function parseNodeVersion(version) {
-  const [, major = '0', minor = '0', patch = '0'] = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version)) ?? [];
-  return { major: Number(major), minor: Number(minor), patch: Number(patch) };
-}
-
-function nodeOk(version) {
-  const got = parseNodeVersion(version);
-  return (
-    got.major > MIN_NODE.major ||
-    (got.major === MIN_NODE.major && got.minor > MIN_NODE.minor) ||
-    (got.major === MIN_NODE.major && got.minor === MIN_NODE.minor && got.patch >= MIN_NODE.patch)
-  );
-}
+// Import tĩnh được hoist lên trước hai dòng trên, nhưng node-version.mjs không in gì và
+// không dùng cú pháp mới hơn Node 18 — nên vẫn an toàn cho cả stdout lẫn kiểm tra version.
+import { nodeOk } from '../src/node-version.mjs';
 
 if (!nodeOk(process.version)) {
   console.error(`[gdrive-mcp] Cần Node >= 18.17, hiện tại ${process.version}.`);
@@ -36,11 +24,13 @@ const { createClient } = await import('../src/client.mjs');
 const { configSearchPaths, readConfigWithSource } = await import('../src/config.mjs');
 const { buildTools } = await import('../src/tools.mjs');
 const { INSTRUCTIONS } = await import('../src/instructions.mjs');
+const { loadFolders } = await import('../src/folders.mjs');
+const { renderError } = await import('../src/render.mjs');
 
 // Phiên bản protocol ta biết. Client gửi phiên bản khác thì echo lại của client —
 // stdio MCP tương thích ngược tốt, cãi nhau về version chỉ làm hỏng handshake.
 const FALLBACK_PROTOCOL = '2025-06-18';
-const SERVER_INFO = { name: 'gdrive', version: '0.3.0' };
+const SERVER_INFO = { name: 'gdrive', version: '0.4.0' };
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 const pendingWrites = new Set();
 
@@ -91,10 +81,21 @@ function fingerprintForConfigs() {
 
 function buildState() {
   const cfgWithSource = readConfigWithSource();
-  const mode = cfgWithSource?.config?.mode === 'readwrite' ? 'readwrite' : 'readonly';
+  let folders = [];
+  let folderError = null;
+  try {
+    folders = loadFolders({ config: cfgWithSource?.config ?? null, env: process.env });
+  } catch (err) {
+    folderError = err; // config hỏng: server vẫn sống, mọi tool báo lỗi này
+  }
+  const hasWrite = folders.some((f) => f.access === 'write');
   const fingerprint = fingerprintForConfigs();
+  // State mới = tools mới = scope/meta mới: scope bất biến với danh sách folder, nên đổi
+  // config (fingerprint đổi) là phải dựng lại toàn bộ ở đây.
   const next = {
-    mode,
+    folders,
+    hasWrite,
+    folderError,
     client: null,
     tools: [],
     byName: new Map(),
@@ -103,10 +104,10 @@ function buildState() {
     fingerprint,
   };
   const getClient = () => {
-    if (!next.client) next.client = createClient({ mode: next.mode, retries: 2 });
+    if (!next.client) next.client = createClient({ mode: hasWrite ? 'readwrite' : 'readonly', retries: 4 });
     return next.client;
   };
-  next.tools = buildTools({ getClient, mode });
+  next.tools = buildTools({ getClient, folders });
   next.byName = new Map(next.tools.map((t) => [t.name, t]));
   next.listPayload = {
     tools: next.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
@@ -120,7 +121,7 @@ function refreshStateIfChanged() {
   const fingerprint = fingerprintForConfigs();
   if (fingerprint === state.fingerprint) return false;
   const next = buildState();
-  const toolsChanged = next.mode !== state.mode;
+  const toolsChanged = next.hasWrite !== state.hasWrite;
   state = next;
   return toolsChanged;
 }
@@ -156,16 +157,15 @@ async function handle(msg) {
       const tool = snapshot.byName.get(params?.name);
       if (!tool) return fail(id, -32602, `Không có tool "${params?.name}".`);
       try {
-        const result = await tool.run(params?.arguments ?? {});
-        return ok(id, {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        });
+        if (snapshot.folderError) throw snapshot.folderError;
+        const text = await tool.run(params?.arguments ?? {});
+        return ok(id, { content: [{ type: 'text', text }] });
       } catch (err) {
         // Lỗi của tool trả về dạng isError để model ĐỌC ĐƯỢC và tự xử lý, thay vì
         // ném lỗi protocol khiến client coi như server hỏng.
         return ok(id, {
           isError: true,
-          content: [{ type: 'text', text: explain(err, snapshot) }],
+          content: [{ type: 'text', text: explain(err, snapshot, params?.name) }],
         });
       }
     }
@@ -176,30 +176,23 @@ async function handle(msg) {
   }
 }
 
-/** Thông điệp lỗi hướng người dùng tới hành động tiếp theo, không chỉ báo mã lỗi. */
-function explain(err, snapshot = state) {
-  const msg = String(err?.message ?? err);
-  const code = Number(err?.code);
-  const email = snapshot.client?.credentials?.clientEmail;
+// Gợi ý khi không chắc lệnh ghi đã chạy chưa: kiểm tra cách nào tuỳ tool.
+const UNCERTAIN_HINT = {
+  drive_create: 'Dùng drive_ls <folder cha> để xem đã tạo chưa trước khi gọi lại.',
+  drive_move: 'Dùng drive_ls để kiểm tra vị trí hiện tại trước khi gọi lại.',
+  sheet_write: 'Đọc lại cuối bảng bằng drive_read trước khi gọi lại sheet_write.',
+};
 
-  if (code === 403 || code === 404) {
-    return (
-      `${msg}\n\n` +
-      'Service account là một danh tính RIÊNG — nó không thấy gì cho tới khi file/thư mục được ' +
-      `share cho email của nó${email ? `: ${email}` : ''}. Bảo người dùng Share (Viewer để đọc, ` +
-      'Editor để ghi) rồi thử lại. Không có cách vòng nào khác.'
-    );
+/** Thông điệp lỗi (dòng đầu `✗ …` từ renderError) kèm gợi ý hành động tiếp theo. */
+function explain(err, snapshot = state, toolName = null) {
+  const email = snapshot.client?.identity?.clientEmail ?? null;
+  const base = renderError(err, { email });
+  if (/không tìm thấy credential|CredentialError/i.test(String(err?.message))) {
+    return `${base}\nBảo người dùng chạy: gdrive init --sa-json <đường-dẫn-key.json> (Claude Code: skill /gdrive-setup). Không hỏi nội dung file key.`;
   }
-  if (/không tìm thấy credential|CredentialError/i.test(msg)) {
-    return (
-      `${msg}\n\nBảo người dùng chạy: gdrive init --sa-json <đường-dẫn-key.json> ` +
-      '(trong Claude Code: skill /gdrive-setup). Không hỏi nội dung file key.'
-    );
-  }
-  if (err?.code === 'NOT_SHARED_DRIVE' || /storageQuotaExceeded/i.test(msg)) {
-    return `${msg}\n\nService account không có dung lượng My Drive — đích upload phải là Shared Drive.`;
-  }
-  return msg;
+  if (err?.code === 'UNCERTAIN_WRITE') return `${base}\n${UNCERTAIN_HINT[toolName] ?? UNCERTAIN_HINT.sheet_write}`;
+  if (/storageQuotaExceeded/i.test(String(err?.message))) return `${base}\nService account không có dung lượng My Drive: folder đích phải nằm trên Shared Drive.`;
+  return base;
 }
 
 // ── Vòng đọc stdin (JSON-RPC phân cách bằng newline) ────────────────────────

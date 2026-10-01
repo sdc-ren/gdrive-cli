@@ -105,7 +105,9 @@ export function readDocx(buffer, { format = 'markdown' } = {}) {
       if (end === -1) break;
       const table = body.slice(m.index, end);
       const md = tableToMarkdown(table);
-      if (md) blocks.push(format === 'markdown' ? md : md.replace(/\|/g, ' ').replace(/^\s*-+.*$/gm, ''));
+      // Ở dạng text: bỏ ĐÚNG dòng phân cách `|---|---|` của bảng markdown rồi mới bỏ dấu |.
+      // Regex cũ xoá mọi dòng bắt đầu bằng "-", kể cả hàng có số âm ở cột đầu.
+      if (md) blocks.push(format === 'markdown' ? md : md.replace(/^\|?(?:\s*:?-+:?\s*\|)+\s*$/gm, '').replace(/\|/g, ' ').replace(/\n{2,}/g, '\n'));
       cursor = end;
       topLevel.lastIndex = end;
     } else {

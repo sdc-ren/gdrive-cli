@@ -238,3 +238,13 @@ test('file không có sharedStrings/styles vẫn đọc được', () => {
   ]);
   assert.deepEqual(openXlsx(zip).readSheet().rows, [['42']]);
 });
+
+test('r:id với tiền tố namespace KHÁC "r" vẫn map đúng part qua rels', () => {
+  const buf = makeZip([
+    { name: 'xl/workbook.xml', data: `<workbook xmlns:ns1="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Only" sheetId="1" ns1:id="rId7"/></sheets></workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: `<Relationships><Relationship Id="rId7" Target="worksheets/sheetX.xml"/></Relationships>` },
+    { name: 'xl/worksheets/sheetX.xml', data: `<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>đúng</t></is></c></row></sheetData></worksheet>` },
+  ]);
+  const wb = openXlsx(buf);
+  assert.deepEqual(wb.readSheet({}).rows, [['đúng']]);
+});

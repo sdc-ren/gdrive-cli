@@ -4,10 +4,10 @@
 // text/plain của Drive gộp hết mọi slide vào một khối, mất ranh giới.
 
 import { decodeEntities, dropAlternateFallback, forEachElement, nsTag } from './xml.mjs';
+import { parseRels, resolveTarget } from './ooxml-rels.mjs';
 import { openZip, ZipError } from './zip.mjs';
 
 const SLIDE_RE = /^ppt\/slides\/slide(\d+)\.xml$/;
-const NOTES_RE = /^ppt\/notesSlides\/notesSlide(\d+)\.xml$/;
 
 // Tiền tố namespace không cố định — xem chú thích trong xml.mjs/nsTag.
 const A_T = nsTag('t');
@@ -60,20 +60,50 @@ function numberedParts(names, re) {
 export function readPptx(buffer, { includeNotes = false } = {}) {
   const zip = openZip(buffer);
   const names = zip.names();
-  const slideParts = numberedParts(names, SLIDE_RE);
+  // Thứ tự slide THẬT nằm ở <p:sldIdLst> của presentation.xml (qua rels), không phải số
+  // trong tên file — kéo thả slide trong PowerPoint không đổi tên part.
+  const warnings = [];
+  let slideParts = [];
+  const presXml = zip.readText('ppt/presentation.xml');
+  const presRels = parseRels(zip.readText('ppt/_rels/presentation.xml.rels'));
+  if (presXml && presRels.size) {
+    const order = [];
+    forEachElement(presXml, 'sldIdLst', ({ inner }) => {
+      forEachElement(inner, 'sldId', ({ attrs }) => {
+        // `r:id` nhưng tiền tố không cố định; loại thuộc tính `id` trần (số 256…).
+        const rid = Object.entries(attrs).find(([k]) => /(^|:)id$/.test(k) && k !== 'id')?.[1];
+        const rel = rid && presRels.get(rid);
+        if (rel) order.push(resolveTarget('ppt', rel.target));
+      });
+    });
+    slideParts = order.filter((name) => zip.has(name)).map((name, i) => ({ name, n: i + 1 }));
+  }
+  if (!slideParts.length) {
+    slideParts = numberedParts(names, SLIDE_RE);
+    if (slideParts.length && presXml) warnings.push('Không đọc được thứ tự slide từ presentation.xml — xếp theo tên file, có thể lệch.');
+    if (slideParts.length && !presXml) warnings.push('Thiếu presentation.xml — thứ tự slide xếp theo tên file, có thể lệch.');
+  }
   if (!slideParts.length) {
     throw new ZipError('Không tìm thấy ppt/slides/slideN.xml — file không phải .pptx hợp lệ.');
   }
 
-  const notesByNumber = new Map();
-  if (includeNotes) {
-    for (const { name, n } of numberedParts(names, NOTES_RE)) {
-      const text = paragraphsOf(zip.readText(name) ?? '').join('\n');
-      if (text) notesByNumber.set(n, text);
+  // Notes ghép qua rels của từng slide; chỉ khi không có rels mới đoán theo số trong tên.
+  const notesFor = (slideName) => {
+    if (!includeNotes) return null;
+    const relsName = slideName.replace(/^(.*\/)([^/]+)$/, '$1_rels/$2.rels');
+    const relsXml = zip.readText(relsName);
+    const rel = [...parseRels(relsXml).values()].find((r) => /\/notesSlide$/.test(r.type));
+    let part = rel ? resolveTarget(slideName.replace(/\/[^/]+$/, ''), rel.target) : null;
+    // Có rels mà không có notesSlide ⇒ slide không có ghi chú; KHÔNG đoán theo số kẻo
+    // gán nhầm ghi chú của slide khác.
+    if (!part && relsXml == null) {
+      const n = SLIDE_RE.exec(slideName)?.[1];
+      part = n ? `ppt/notesSlides/notesSlide${n}.xml` : null;
     }
-  }
+    const text = part ? paragraphsOf(zip.readText(part) ?? '').join('\n') : '';
+    return text || null;
+  };
 
-  const warnings = [];
   const slides = slideParts.map(({ name, n }, i) => {
     const paras = paragraphsOf(zip.readText(name) ?? '');
     // Slide layout không đảm bảo dòng đầu là tiêu đề, nhưng thực tế đúng đa số — và ta nói
@@ -84,7 +114,7 @@ export function readPptx(buffer, { includeNotes = false } = {}) {
       partNumber: n,
       title: first ?? null,
       body: rest,
-      notes: notesByNumber.get(n) ?? null,
+      notes: notesFor(name),
     };
   });
 

@@ -9,6 +9,7 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { runClientUninstall, runInstall } from '../src/clients.mjs';
+import { assertCliQueryAllowed, resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
 import { createClient } from '../src/client.mjs';
 import { readConfig } from '../src/config.mjs';
 import {
@@ -19,17 +20,21 @@ import {
   shareFile,
   uploadFile,
 } from '../src/drive.mjs';
-import { KIND as FORMAT_KIND } from '../src/formats.mjs';
+import { runFolder } from '../src/folder-cli.mjs';
+import { loadFolders } from '../src/folders.mjs';
+import { KIND as FORMAT_KIND, MIME } from '../src/formats.mjs';
 import { runInit } from '../src/init.mjs';
+import { assertSafeCellValue } from '../src/sheet-guard.mjs';
+import { renderFolders } from '../src/render.mjs';
 import { batchUpdateValues, getMetadata, pickSheet } from '../src/sheets.mjs';
 import { runStatus } from '../src/status.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
 import { inspect, readDocument, readTable } from '../src/read-document.mjs';
-import { buildA1, parseGoogleUrl } from '../src/url.mjs';
+import { buildA1 } from '../src/url.mjs';
 
 const VALUE_FLAGS = new Set([
   'sheet', 'range', 'max-rows', 'max-chars', 'format', 'out', 'folder', 'name-contains',
-  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode', 'client',
+  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode', 'client', 'access',
 ]);
 const REPEATABLE_FLAGS = new Set(['set']);
 
@@ -78,6 +83,9 @@ const HELP = `gdrive — Google Drive / Sheets / Docs / Slides bằng service ac
 
   gdrive init [--sa-json <file>|--adc] [--mode readonly|readwrite] [--yes] [--no-test] [--no-skill]
   gdrive status
+  gdrive folder add <url|id> [--name <tên>] [--access read|write]
+  gdrive folder list | set <tên> --access … | remove <tên>
+        Danh sách folder được phép — tool MCP chỉ đọc/ghi trong các folder này.
   gdrive uninstall [--purge]
 
   gdrive install --client <codex|copilot|copilot-cli|cursor|kiro>[,…] [--project] [--skill]
@@ -131,18 +139,21 @@ function printWarnings(warnings) {
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
+const cliFolders = () => loadFolders({ config: readConfig(), env: process.env });
+
 function clientFor(flags, { needWrite = false } = {}) {
   const cfg = readConfig();
-  const mode = flags.mode ?? cfg?.mode ?? 'readonly';
-  if (needWrite && mode !== 'readwrite') {
-    const e = new Error(
-      'Đang ở chế độ readonly nên lệnh này bị từ chối.\n' +
-        'Bật ghi: gdrive init --mode readwrite   (hoặc thêm --mode readwrite cho lần chạy này)',
-    );
-    e.exitCode = 3;
-    throw e;
-  }
+  const folders = loadFolders({ config: cfg, env: process.env });
+  const mode = resolveCliMode({ flags, cfg, folders, needWrite });
   return createClient({ mode, retries: 2 });
+}
+
+/**
+ * Có danh sách folder thì CLI tuân phạm vi như MCP (xem src/cli-scope.mjs); `write: true`
+ * thì file phải nằm trong folder có quyền write. Scope tạo mới mỗi lệnh.
+ */
+function scopedTarget(client, input, { write = false } = {}) {
+  return resolveCliTarget({ client, input, write, folders: cliFolders() });
 }
 
 function requireArg(flags, index, what) {
@@ -158,8 +169,8 @@ function requireArg(flags, index, what) {
 // ── Lệnh ─────────────────────────────────────────────────────────────────────
 
 async function cmdRead(flags) {
-  const { id, gid } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
   const client = clientFor(flags);
+  const { id, gid } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
   const res = await readTable(client, id, {
     sheet: flags.sheet ?? null,
     gid,
@@ -185,8 +196,8 @@ async function cmdRead(flags) {
 }
 
 async function cmdDoc(flags) {
-  const { id } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
   const client = clientFor(flags);
+  const { id } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
   const res = await readDocument(client, id, {
     format: flags.format === 'text' ? 'text' : 'markdown',
     includeNotes: flags.notes === true,
@@ -204,8 +215,8 @@ async function cmdDoc(flags) {
 }
 
 async function cmdInfo(flags) {
-  const { id } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
   const client = clientFor(flags);
+  const { id } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
   const { meta, kind, readAs, tabular, note } = await inspect(client, id);
 
   const payload = {
@@ -240,8 +251,17 @@ async function cmdInfo(flags) {
 
 async function cmdLs(flags) {
   const target = flags._[1];
-  const folderId = target ? parseGoogleUrl(target).id : null;
+  const folders = cliFolders();
+  assertCliQueryAllowed({ query: flags.query, folders });
   const client = clientFor(flags);
+  const listTarget = await resolveCliListTarget({ client, target, folders });
+  if (listTarget.roots) {
+    // Có danh sách folder mà không chỉ đích: in các folder được phép, không liệt kê cả Drive.
+    if (flags.json) json({ folders: listTarget.roots });
+    else out(renderFolders(listTarget.roots));
+    return true;
+  }
+  const { folderId } = listTarget;
   const { files, nextPageToken } = await listFiles(client, {
     folderId,
     nameContains: flags['name-contains'] ?? null,
@@ -267,7 +287,7 @@ async function cmdLs(flags) {
 }
 
 async function cmdGet(flags) {
-  const { id } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
+  const input = requireArg(flags, 1, '<url>');
   const dest = flags.out;
   if (!dest) {
     const e = new Error('Thiếu --out <đường-dẫn>.');
@@ -275,16 +295,18 @@ async function cmdGet(flags) {
     throw e;
   }
   const client = clientFor(flags);
+  const { id } = await scopedTarget(client, input);
   const { meta, kind } = await inspect(client, id);
 
   // File native của Google không tải thẳng được — phải export.
   const exportAs = {
-    [FORMAT_KIND.GOOGLE_DOC]: 'application/pdf',
-    [FORMAT_KIND.GOOGLE_SHEET]: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    [FORMAT_KIND.GOOGLE_SLIDES]: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    [FORMAT_KIND.GOOGLE_DOC]: MIME.PDF,
+    [FORMAT_KIND.GOOGLE_SHEET]: MIME.XLSX,
+    [FORMAT_KIND.GOOGLE_SLIDES]: MIME.PPTX,
   }[kind];
 
-  const buf = exportAs ? await exportFile(client, id, exportAs) : await downloadFile(client, id);
+  // CLI: người dùng ngồi chờ được bao lâu cũng được → không timeout (file lớn, mạng chậm).
+  const buf = exportAs ? await exportFile(client, id, exportAs, { timeoutMs: 0 }) : await downloadFile(client, id, { timeoutMs: 0 });
   writeFileSync(dest, buf);
 
   const payload = { path: dest, bytes: buf.length, name: meta.name, exported: Boolean(exportAs), mimeType: exportAs ?? meta.mimeType };
@@ -301,7 +323,7 @@ async function cmdPut(flags) {
     throw e;
   }
   const client = clientFor(flags, { needWrite: true });
-  const folderId = parseGoogleUrl(flags.folder).id;
+  const folderId = (await scopedTarget(client, flags.folder, { write: true })).id;
 
   // Chặn trước bằng lỗi nói đúng bệnh, thay vì để Google ném 403 khó hiểu.
   await assertUploadableFolder(client, folderId);
@@ -324,27 +346,40 @@ async function cmdPut(flags) {
   return true;
 }
 
-async function cmdWrite(flags) {
-  const { id, gid } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
+/** `--set Ô=giá trị` (lặp được) → [{ cell, value }]. Sai cách dùng → exitCode 2. */
+export function parseSets(flags) {
   const sets = [].concat(flags.set ?? []).filter((s) => typeof s === 'string');
   if (!sets.length) {
     const e = new Error('Thiếu --set <ô>=<giá trị>. Ví dụ: --set L5=PASSED --set L6=FAILED');
     e.exitCode = 2;
     throw e;
   }
+  return sets.map((entry) => {
+    const eq = entry.indexOf('=');
+    if (eq < 1) throw Object.assign(new Error(`--set "${entry}" sai cú pháp, cần dạng Ô=giá trị.`), { exitCode: 2 });
+    const value = entry.slice(eq + 1);
+    // Cùng luật với MCP: muốn công thức IMPORT*/IMAGE thật thì gõ trong giao diện Sheets.
+    try {
+      assertSafeCellValue(value);
+    } catch (err) {
+      throw Object.assign(err, { exitCode: 2 });
+    }
+    return { cell: entry.slice(0, eq).trim(), value };
+  });
+}
 
+async function cmdWrite(flags) {
+  // Kiểm cú pháp TRƯỚC khi dựng client: lỗi cách dùng không được tốn một vòng gọi mạng.
+  const input = requireArg(flags, 1, '<url>');
+  const sets = parseSets(flags);
   const client = clientFor(flags, { needWrite: true });
+  const { id, gid } = await scopedTarget(client, input, { write: true });
+
   const meta = await getMetadata(client, id);
   const sheet = pickSheet(meta.sheets, { sheet: flags.sheet ?? null, gid });
 
-  const data = sets.map((entry) => {
-    const eq = entry.indexOf('=');
-    if (eq < 1) throw Object.assign(new Error(`--set "${entry}" sai cú pháp, cần dạng Ô=giá trị.`), { exitCode: 2 });
-    const cell = entry.slice(0, eq).trim();
-    const value = entry.slice(eq + 1);
-    // buildA1 lo phần tên tab + dấu nháy — chỗ 8 bản fork trong packflow đều viết sai.
-    return { range: buildA1(sheet.title, cell), values: [[value]] };
-  });
+  // buildA1 lo phần tên tab + dấu nháy — chỗ 8 bản fork trong packflow đều viết sai.
+  const data = sets.map(({ cell, value }) => ({ range: buildA1(sheet.title, cell), values: [[value]] }));
 
   const res = await batchUpdateValues(client, id, data);
   if (flags.json) json({ sheet, ...res });
@@ -379,6 +414,7 @@ async function main() {
     case 'get': return cmdGet(flags);
     case 'put': return cmdPut(flags);
     case 'write': return cmdWrite(flags);
+    case 'folder': return runFolder(flags);
     case 'init': return runInit(flags);
     case 'status': return runStatus({});
     case 'install': return runInstall(flags, { hasConfig: Boolean(readConfig()) });

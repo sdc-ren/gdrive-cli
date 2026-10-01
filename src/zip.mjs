@@ -98,7 +98,7 @@ function applyZip64Extra(extra, entry) {
  * bật — PowerPoint bật rất thường xuyên — local header ghi size = 0, chỉ central directory
  * mới có số đúng.
  */
-export function openZip(buffer) {
+export function openZip(buffer, { maxInflateBytes = 256 * 1024 * 1024 } = {}) {
   const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
   const { entries: count, cdOffset } = readEocd(buf);
 
@@ -140,17 +140,18 @@ export function openZip(buffer) {
     /** Giải nén một entry. Trả Buffer, hoặc null nếu không có entry đó. */
     read: (name) => {
       const entry = entries.get(name);
-      return entry ? readEntry(buf, entry) : null;
+      return entry ? readEntry(buf, entry, maxInflateBytes) : null;
     },
     /** Giải nén rồi decode UTF-8 (mọi part XML của OOXML đều là UTF-8). */
     readText: (name) => {
       const entry = entries.get(name);
-      return entry ? readEntry(buf, entry).toString('utf8') : null;
+      return entry ? readEntry(buf, entry, maxInflateBytes).toString('utf8') : null;
     },
   };
 }
 
-function readEntry(buf, entry) {
+/** maxInflateBytes: trần dung lượng sau giải nén — chặn zip bomb làm cạn RAM. */
+function readEntry(buf, entry, maxInflateBytes) {
   if (entry.flags & FLAG_ENCRYPTED) {
     throw new ZipError(`"${entry.name}" được đặt mật khẩu — không đọc được.`);
   }
@@ -170,7 +171,14 @@ function readEntry(buf, entry) {
   if (entry.method === METHOD_STORE) return Buffer.from(data);
   if (entry.method === METHOD_DEFLATE) {
     // inflateRAW: dữ liệu trong ZIP là deflate trần, KHÔNG có header zlib 2 byte.
-    return inflateRawSync(data);
+    try {
+      return inflateRawSync(data, { maxOutputLength: maxInflateBytes });
+    } catch (err) {
+      if (err?.code === 'ERR_BUFFER_TOO_LARGE' || /maxOutputLength|Cannot create a Buffer larger/i.test(String(err?.message))) {
+        throw new ZipError(`"${entry.name}" giải nén quá lớn (trên ${Math.round(maxInflateBytes / 1024 / 1024)} MB) — từ chối để tránh zip bomb.`);
+      }
+      throw new ZipError(`"${entry.name}" giải nén lỗi: ${err?.message ?? err}`);
+    }
   }
   throw new ZipError(
     `"${entry.name}" nén bằng method ${entry.method} (chỉ hỗ trợ 0=stored và 8=deflate).`,

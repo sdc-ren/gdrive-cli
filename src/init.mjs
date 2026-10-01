@@ -123,7 +123,9 @@ export async function runInit(
     }
 
     const mode = (flags.mode ?? existing?.mode) === 'readwrite' ? 'readwrite' : 'readonly';
-    const cfgFile = writeConfig({ mode, useAdc, ...(credentials ?? {}) }, home, env);
+    // Giữ mọi khoá khác (folders…) của config cũ; chỉ thay phần credential và mode.
+    const { clientEmail: _e, privateKey: _k, projectId: _p, useAdc: _a, mode: _m, ...keep } = existing ?? {};
+    const cfgFile = writeConfig({ ...keep, mode, useAdc, ...(credentials ?? {}) }, home, env);
     if (process.platform === 'win32') {
       log(`✅ Đã ghi cấu hình → ${cfgFile}`);
       log('⚠️  Windows không set được chmod 600 cho file chứa private key.');
@@ -132,6 +134,8 @@ export async function runInit(
       log(`✅ Đã ghi cấu hình → ${cfgFile} (chmod 600)`);
     }
     log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi client AI' : ''}`);
+    const hasFolders = (Array.isArray(keep.folders) && keep.folders.length > 0) || Boolean(env.GDRIVE_FOLDERS);
+    if (!hasFolders) log('   Chưa có folder nào được phép — chạy: gdrive folder add <url-folder> [--access write]');
 
     if (!flags['no-test']) {
       log('\n🔎 Kiểm tra kết nối...');

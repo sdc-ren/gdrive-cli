@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -15,6 +15,7 @@ import {
   pluginDataDir,
   readConfig,
   readConfigWithSource,
+  writeConfig,
 } from '../src/config.mjs';
 import { runInit, validateServiceAccountJson } from '../src/init.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
@@ -114,6 +115,46 @@ test('init: chạy lại thì giữ credential cũ, đổi được mode', async
     const cfg = readConfig(home, env);
     assert.equal(cfg.clientEmail, 'test-sa@proj-test.iam.gserviceaccount.com');
     assert.equal(cfg.mode, 'readwrite');
+  });
+});
+
+test('init: chạy lại với key khác / --adc giữ nguyên folders, đổi đúng credential', async () => {
+  await sandbox(async ({ home, keyFile, env }) => {
+    const logs = [];
+    const log = (l) => logs.push(l);
+    await runInit(baseFlags(keyFile), { home, log, env });
+    assert.match(logs.join('\n'), /Chưa có folder nào được phép — chạy: gdrive folder add <url-folder> \[--access write\]/);
+    const folders = [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }];
+    writeConfig({ ...readConfig(home, env), folders, extra: 'giữ' }, home, env);
+
+    const other = join(home, 'other.json');
+    writeFileSync(other, KEY_JSON.replace('test-sa@', 'other-sa@'));
+    logs.length = 0;
+    await runInit({ yes: true, 'sa-json': other, 'no-test': true }, { home, log, env });
+    let cfg = readConfig(home, env);
+    assert.deepEqual(cfg.folders, folders);
+    assert.equal(cfg.extra, 'giữ');
+    assert.equal(cfg.clientEmail, 'other-sa@proj-test.iam.gserviceaccount.com');
+    assert.doesNotMatch(logs.join('\n'), /Chưa có folder nào/);
+
+    await runInit({ yes: true, adc: true, 'no-test': true }, { home, log, env });
+    cfg = readConfig(home, env);
+    assert.deepEqual(cfg.folders, folders);
+    assert.equal(cfg.useAdc, true);
+    assert.equal(cfg.privateKey, undefined, 'chuyển sang ADC thì bỏ private key');
+    assert.equal(cfg.clientEmail, undefined);
+  });
+});
+
+test('writeConfig: file tạm cũ sót lại (crash, quyền 644) bị xoá rồi ghi mới với quyền 600', async () => {
+  await sandbox(async ({ home, env }) => {
+    const target = writeConfig({ mode: 'readonly' }, home, env);
+    const tmp = `${target}.${process.pid}.tmp`;
+    writeFileSync(tmp, 'rác cũ', { mode: 0o644 });
+    writeConfig({ mode: 'readwrite' }, home, env);
+    assert.equal(existsSync(tmp), false);
+    assert.equal(readConfig(home, env).mode, 'readwrite');
+    if (process.platform !== 'win32') assert.equal(statSync(target).mode & 0o777, 0o600);
   });
 });
 
@@ -430,5 +471,16 @@ test('uninstall --purge: xoá cả config trung lập và cảnh báo mọi clie
     runUninstall({ purge: true }, { home, log: (l) => logs.push(l), env });
     assert.equal(existsSync(file), false);
     assert.match(logs.join('\n'), /Codex, Cursor/);
+  });
+});
+
+test('writeConfig: không để lại file tạm, ghi đè đúng file, mode 600 sau khi ghi', async () => {
+  await sandbox(async ({ home, env }) => {
+    const file = writeConfig({ clientEmail: 'a@x.com', privateKey: 'k1' }, home, env);
+    const again = writeConfig({ clientEmail: 'a@x.com', privateKey: 'k2' }, home, env);
+    assert.equal(file, again);
+    assert.deepEqual(readdirSync(join(file, '..')), ['config.json'], 'không còn file .tmp');
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).privateKey, 'k2');
+    if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600);
   });
 });

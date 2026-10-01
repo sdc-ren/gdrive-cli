@@ -1,7 +1,7 @@
 ---
 name: gdrive-setup
-description: Cấu hình credential cho plugin gdrive lần đầu, hoặc đổi service account / bật chế độ ghi. Dùng khi tool gdrive_* báo "Không tìm thấy credential", khi người dùng nói "cài đặt gdrive", "cấu hình Google Drive", "đổi service account", "bật quyền ghi sheet", hoặc khi cần kiểm tra vì sao gdrive không truy cập được file.
-version: 0.3.0
+description: Cấu hình credential và danh sách folder cho plugin gdrive lần đầu, hoặc đổi service account / thêm folder / bật quyền ghi cho folder. Dùng khi tool drive_* báo "Không tìm thấy credential" hoặc "ngoài phạm vi", khi người dùng nói "cài đặt gdrive", "cấu hình Google Drive", "đổi service account", "thêm folder", "bật quyền ghi sheet", hoặc khi cần kiểm tra vì sao gdrive không truy cập được file.
+version: 0.4.0
 ---
 
 # Cấu hình gdrive
@@ -24,11 +24,11 @@ Xanh hết là xong, không cần làm gì thêm.
 1. Hỏi người dùng: *"Bạn đã có file JSON key của service account chưa? Nếu có, cho tôi đường
    dẫn tới file đó."*
 
-2. **Có rồi** → chạy (mặc định readonly cho an toàn):
+2. **Có rồi** → chạy:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --sa-json "<đường-dẫn>" --mode readonly --yes
+   node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --sa-json "<đường-dẫn>" --yes
    ```
-   Cần ghi sheet / upload thì đổi `--mode readwrite`. Hỏi người dùng trước khi bật ghi.
+   Quyền đọc/ghi đặt theo từng folder ở bước 5.
 
 3. **Chưa có** → đưa hướng dẫn này rồi chờ họ tải file về:
 
@@ -45,16 +45,27 @@ Xanh hết là xong, không cần làm gì thêm.
    > khi bạn Share file/thư mục cho email này — Viewer để đọc, Editor để ghi. Y như share cho
    > một đồng nghiệp.
 
-5. Nhắc người dùng **mở session Claude Code mới** để MCP server nạp cấu hình.
+5. Hỏi người dùng folder nào plugin được phép đọc, folder nào được ghi, rồi thêm từng folder:
+   ```bash
+   gdrive folder add "<link-folder>" --access read
+   gdrive folder add "<link-folder-ket-qua>" --access write
+   ```
+   (bản plugin Claude Code: `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" folder add …`). Lệnh báo lỗi
+   nếu folder chưa được share cho email ở bước 4. Chưa có folder nào thì mọi tool từ chối.
 
-## Đổi chế độ đọc/ghi
+6. Nhắc người dùng **mở session Claude Code mới** để MCP server nạp cấu hình.
+
+## Đổi quyền từng folder
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite --yes --no-test
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" folder list
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" folder set <tên> --access write
 ```
 
-Giữ nguyên credential đang có, chỉ đổi scope. Ở `readonly`, hai tool `gdrive_sheet_write` và
-`gdrive_upload` **bị ẩn hẳn** khỏi danh sách tool — đó là chủ ý, không phải lỗi.
+Folder con ở mọi độ sâu theo quyền của folder đã thêm. Ba tool ghi (`sheet_write`, `drive_create`,
+`drive_move`) chỉ hiện khi có ít nhất một folder `write`; không thấy chúng thì đó là chủ ý.
+Khoá `mode` cũ (`readonly`/`readwrite`, đặt bằng `init --mode`) không còn tác dụng khi đã có folder.
+Bỏ một folder khỏi danh sách: `folder remove <tên>`.
 
 ## Dọn bản cài kiểu cũ
 

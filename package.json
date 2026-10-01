@@ -1,6 +1,6 @@
 {
   "name": "gdrive-cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Truy cập Google Sheets/Docs/Slides/Drive bằng service account — MCP server + CLI cho Claude Code, Codex, Copilot, Cursor, Kiro; zero dependency",
   "type": "module",
   "bin": {
@@ -21,7 +21,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "bench": "node bench/tokens.mjs"
   },
   "engines": {
     "node": ">=18.17"
