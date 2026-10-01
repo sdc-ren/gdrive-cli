@@ -6,8 +6,28 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
 
 ## [Chưa phát hành]
 
+## [0.4.0] - 2026-10-01
+
+### Thay đổi phá tương thích
+
+- Mọi truy cập giới hạn trong danh sách folder. Sau khi nâng cấp phải chạy
+  `gdrive folder add <url> [--access write]`; danh sách rỗng thì mọi tool từ chối.
+- Tool MCP đổi: `gdrive_sheet_read`, `gdrive_read_document`, `gdrive_file_info` gộp thành
+  `drive_read`; `gdrive_list` thành `drive_ls`; `gdrive_sheet_write` thành `sheet_write`;
+  `gdrive_download` và `gdrive_upload` bỏ khỏi MCP (CLI `get`/`put` vẫn còn).
+- Kết quả tool là văn bản thuần (TSV, markdown), không còn JSON.
+- Khoá `mode` trong config không còn tác dụng khi có `folders`; quyền đặt theo từng folder.
+- `createClient()` không trả `credentials` nữa; dùng `client.identity`.
+
 ### Thêm
 
+- `drive_create` (folder, Doc từ markdown, Sheet từ CSV/TSV) và `drive_move`.
+- `drive_read` lọc `columns`, `where`, phân trang `offset`/`limit`.
+- `sheet_write` thêm `append`.
+- `gdrive folder add/list/set/remove`; biến `GDRIVE_FOLDERS` cho CI.
+- Cache metadata Drive/Sheets 5 phút và tổ tiên folder 10 phút trong MCP server.
+- Timeout 30 giây, thử lại theo `Retry-After` có jitter, giới hạn 4 request đồng thời, `GDRIVE_DEBUG=1`.
+- `npm run bench` đo token; CI đỏ khi schema vượt 700 token ước lượng.
 - `SECURITY.md`, `CONTRIBUTING.md`, template issue và PR.
 
 ### Đổi
@@ -15,6 +35,17 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
 - `main` là nhánh phát hành mặc định, `develop` là nhánh phát triển. PR nhắm vào `develop`.
 - CI chạy khi push hoặc mở PR vào `main` và `develop`.
 - URL repo trong `package.json` và manifest plugin trỏ về `sdc-ren/gdrive-cli`.
+
+### Sửa
+
+- Drive báo giới hạn tốc độ bằng 403 `rateLimitExceeded` giờ được thử lại; trước đó bị coi là lỗi vĩnh viễn.
+- Request không idempotent (`append`, tạo file) không gửi lại khi mất trả lời, tránh ghi trùng.
+- Thứ tự slide pptx lấy từ `presentation.xml` thay vì số trong tên file; notes ghép qua rels.
+- docx ở dạng text không còn xoá hàng bảng có số âm ở cột đầu.
+- xlsx đọc `r:id` với mọi tiền tố namespace.
+- Chặn file trên 50 MB và zip giải nén trên 256 MB.
+- Config ghi nguyên tử với mode 600 ngay từ đầu.
+- `gdrive_download` từng ghi được file tuỳ ý trên máy từ MCP, kể cả ở readonly; đã bỏ khỏi MCP.
 
 ## [0.3.0] - 2026-09-30
 
@@ -76,7 +107,8 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
   Slides và `.xlsx`, `.docx`, `.pptx` trên Drive.
 - CLI `gdrive` và wizard cài đặt qua npx, skill cho Claude Code.
 
-[Chưa phát hành]: https://github.com/sdc-ren/gdrive-cli/compare/v0.3.0...develop
+[Chưa phát hành]: https://github.com/sdc-ren/gdrive-cli/compare/v0.4.0...develop
+[0.4.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sdc-ren/gdrive-cli/compare/v0.1.0...v0.1.1
