@@ -19,8 +19,12 @@ import {
   shareFile,
   uploadFile,
 } from '../src/drive.mjs';
-import { KIND as FORMAT_KIND } from '../src/formats.mjs';
+import { runFolder } from '../src/folder-cli.mjs';
+import { loadFolders } from '../src/folders.mjs';
+import { KIND as FORMAT_KIND, MIME } from '../src/formats.mjs';
 import { runInit } from '../src/init.mjs';
+import { createMetaStore } from '../src/meta.mjs';
+import { createScope } from '../src/scope.mjs';
 import { batchUpdateValues, getMetadata, pickSheet } from '../src/sheets.mjs';
 import { runStatus } from '../src/status.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
@@ -29,7 +33,7 @@ import { buildA1, parseGoogleUrl } from '../src/url.mjs';
 
 const VALUE_FLAGS = new Set([
   'sheet', 'range', 'max-rows', 'max-chars', 'format', 'out', 'folder', 'name-contains',
-  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode', 'client',
+  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode', 'client', 'access',
 ]);
 const REPEATABLE_FLAGS = new Set(['set']);
 
@@ -78,6 +82,9 @@ const HELP = `gdrive — Google Drive / Sheets / Docs / Slides bằng service ac
 
   gdrive init [--sa-json <file>|--adc] [--mode readonly|readwrite] [--yes] [--no-test] [--no-skill]
   gdrive status
+  gdrive folder add <url|id> [--name <tên>] [--access read|write]
+  gdrive folder list | set <tên> --access … | remove <tên>
+        Danh sách folder được phép — tool MCP chỉ đọc/ghi trong các folder này.
   gdrive uninstall [--purge]
 
   gdrive install --client <codex|copilot|copilot-cli|cursor|kiro>[,…] [--project] [--skill]
@@ -145,6 +152,20 @@ function clientFor(flags, { needWrite = false } = {}) {
   return createClient({ mode, retries: 2 });
 }
 
+/**
+ * Khi đã có danh sách folder, CLI cũng tuân phạm vi như MCP: file ngoài folder được phép
+ * bị từ chối. Chưa có danh sách thì CLI đọc mọi thứ service account thấy (dùng tay, không
+ * phải model gọi). Scope tạo mới mỗi lệnh (instance scope bất biến theo danh sách folder).
+ */
+async function scopedTarget(client, input) {
+  const folders = loadFolders({ config: readConfig(), env: process.env });
+  if (!folders.length) return parseGoogleUrl(input);
+  const meta = createMetaStore({ client });
+  const scope = createScope({ folders, meta });
+  const { fileId, gid } = await scope.resolve(input);
+  return { id: fileId, gid };
+}
+
 function requireArg(flags, index, what) {
   const v = flags._[index];
   if (!v) {
@@ -158,8 +179,8 @@ function requireArg(flags, index, what) {
 // ── Lệnh ─────────────────────────────────────────────────────────────────────
 
 async function cmdRead(flags) {
-  const { id, gid } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
   const client = clientFor(flags);
+  const { id, gid } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
   const res = await readTable(client, id, {
     sheet: flags.sheet ?? null,
     gid,
@@ -185,8 +206,8 @@ async function cmdRead(flags) {
 }
 
 async function cmdDoc(flags) {
-  const { id } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
   const client = clientFor(flags);
+  const { id } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
   const res = await readDocument(client, id, {
     format: flags.format === 'text' ? 'text' : 'markdown',
     includeNotes: flags.notes === true,
@@ -240,8 +261,8 @@ async function cmdInfo(flags) {
 
 async function cmdLs(flags) {
   const target = flags._[1];
-  const folderId = target ? parseGoogleUrl(target).id : null;
   const client = clientFor(flags);
+  const folderId = target ? (await scopedTarget(client, target)).id : null;
   const { files, nextPageToken } = await listFiles(client, {
     folderId,
     nameContains: flags['name-contains'] ?? null,
@@ -279,9 +300,9 @@ async function cmdGet(flags) {
 
   // File native của Google không tải thẳng được — phải export.
   const exportAs = {
-    [FORMAT_KIND.GOOGLE_DOC]: 'application/pdf',
-    [FORMAT_KIND.GOOGLE_SHEET]: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    [FORMAT_KIND.GOOGLE_SLIDES]: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    [FORMAT_KIND.GOOGLE_DOC]: MIME.PDF,
+    [FORMAT_KIND.GOOGLE_SHEET]: MIME.XLSX,
+    [FORMAT_KIND.GOOGLE_SLIDES]: MIME.PPTX,
   }[kind];
 
   const buf = exportAs ? await exportFile(client, id, exportAs) : await downloadFile(client, id);
@@ -325,7 +346,8 @@ async function cmdPut(flags) {
 }
 
 async function cmdWrite(flags) {
-  const { id, gid } = parseGoogleUrl(requireArg(flags, 1, '<url>'));
+  const client = clientFor(flags, { needWrite: true });
+  const { id, gid } = await scopedTarget(client, requireArg(flags, 1, '<url>'));
   const sets = [].concat(flags.set ?? []).filter((s) => typeof s === 'string');
   if (!sets.length) {
     const e = new Error('Thiếu --set <ô>=<giá trị>. Ví dụ: --set L5=PASSED --set L6=FAILED');
@@ -333,7 +355,6 @@ async function cmdWrite(flags) {
     throw e;
   }
 
-  const client = clientFor(flags, { needWrite: true });
   const meta = await getMetadata(client, id);
   const sheet = pickSheet(meta.sheets, { sheet: flags.sheet ?? null, gid });
 
@@ -379,6 +400,7 @@ async function main() {
     case 'get': return cmdGet(flags);
     case 'put': return cmdPut(flags);
     case 'write': return cmdWrite(flags);
+    case 'folder': return runFolder(flags);
     case 'init': return runInit(flags);
     case 'status': return runStatus({});
     case 'install': return runInstall(flags, { hasConfig: Boolean(readConfig()) });
