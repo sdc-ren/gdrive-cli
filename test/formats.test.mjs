@@ -102,3 +102,9 @@ test('parseSets: tách --set Ô=giá trị; thiếu hoặc sai cú pháp → exi
   assert.throws(() => parseSets(parseArgs(['write', 'u'])), (e) => e.exitCode === 2 && /Thiếu --set/.test(e.message));
   assert.throws(() => parseSets(parseArgs(['write', 'u', '--set', 'L5'])), (e) => e.exitCode === 2 && /sai cú pháp/.test(e.message));
 });
+
+test('parseSets: chặn công thức IMPORT*/IMAGE như MCP (exit 2, trước khi dựng client)', () => {
+  assert.throws(() => parseSets(parseArgs(['write', 'u', '--set', 'A1==IMPORTRANGE("x","A1")'])), (e) => e.exitCode === 2 && /IMPORT\*\/IMAGE/.test(e.message));
+  assert.throws(() => parseSets(parseArgs(['write', 'u', '--set', 'A1=+image("http://x")'])), (e) => e.exitCode === 2);
+  assert.deepEqual(parseSets(parseArgs(['write', 'u', '--set', 'A1==SUM(B1:B3)'])), [{ cell: 'A1', value: '=SUM(B1:B3)' }]);
+});

@@ -24,6 +24,7 @@ import { runFolder } from '../src/folder-cli.mjs';
 import { loadFolders } from '../src/folders.mjs';
 import { KIND as FORMAT_KIND, MIME } from '../src/formats.mjs';
 import { runInit } from '../src/init.mjs';
+import { assertSafeCellValue } from '../src/sheet-guard.mjs';
 import { renderFolders } from '../src/render.mjs';
 import { batchUpdateValues, getMetadata, pickSheet } from '../src/sheets.mjs';
 import { runStatus } from '../src/status.mjs';
@@ -356,7 +357,14 @@ export function parseSets(flags) {
   return sets.map((entry) => {
     const eq = entry.indexOf('=');
     if (eq < 1) throw Object.assign(new Error(`--set "${entry}" sai cú pháp, cần dạng Ô=giá trị.`), { exitCode: 2 });
-    return { cell: entry.slice(0, eq).trim(), value: entry.slice(eq + 1) };
+    const value = entry.slice(eq + 1);
+    // Cùng luật với MCP: muốn công thức IMPORT*/IMAGE thật thì gõ trong giao diện Sheets.
+    try {
+      assertSafeCellValue(value);
+    } catch (err) {
+      throw Object.assign(err, { exitCode: 2 });
+    }
+    return { cell: entry.slice(0, eq).trim(), value };
   });
 }
 

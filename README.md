@@ -339,6 +339,8 @@ account thấy, còn khoá `mode` cũ quyết định có cho ghi hay không. V�
 mang nguyên quyền của tài khoản đó, nên giới hạn duy nhất là lớp kiểm folder và việc ẩn tool
 ghi.
 
+`write` từ chối giá trị là công thức `IMPORT*`/`IMAGE` (bắt đầu bằng `=` hoặc `+`), giống tool MCP; cần công thức đó thì gõ trực tiếp trong Google Sheets.
+
 ## Credential
 
 Thứ tự tìm, dừng ở nguồn đầu tiên có:

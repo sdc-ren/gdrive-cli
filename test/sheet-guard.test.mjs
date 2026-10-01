@@ -34,3 +34,14 @@ test('assertSafeTable: TSV, CSV có nháy, ô nhiều dòng trong nháy', () => 
   assert.throws(() => assertSafeTable('a,b\n1, =image("u")'), /IMPORT\*/);
   assert.doesNotThrow(() => assertSafeTable('a,b\n1,=SUM(A1:A2)\n"x, IMAGE(1)",2'));
 });
+
+test('BLOCKED_FORMULA_RE: tiền tố + cũng là công thức trong Sheets', () => {
+  assert.ok(BLOCKED_FORMULA_RE.test('+IMPORTRANGE("x","A1")'));
+  assert.ok(BLOCKED_FORMULA_RE.test('  +image("http://x")'));
+  assert.ok(!BLOCKED_FORMULA_RE.test('+SUM(A1)'));
+});
+
+test('BLOCKED_FORMULA_RE: tiền tố - không phải công thức, để nguyên là chữ', () => {
+  assert.ok(!BLOCKED_FORMULA_RE.test('-5'));
+  assert.ok(!BLOCKED_FORMULA_RE.test('-IMPORTRANGE("x","A1")'));
+});
