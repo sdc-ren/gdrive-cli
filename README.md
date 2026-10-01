@@ -1,47 +1,80 @@
 # gdrive-cli
 
-Truy cập Google Sheets / Docs / Slides / Drive bằng **service account** — MCP server cho
-Claude Code, Codex, GitHub Copilot, Cursor, Kiro (và mọi client MCP khác), kèm CLI và thư viện
-cho script Node — **zero dependency**.
+gdrive-cli cho trợ lý AI đọc và ghi Google Sheets, Docs, Slides và file trên Drive bằng một
+service account riêng. Nó là một MCP server chạy trên máy bạn, dùng được với Claude Code,
+Codex, GitHub Copilot (VS Code và CLI), Cursor, Kiro và các client MCP khác. Kèm theo là một CLI
+và một thư viện Node cho script. Gói không có dependency nào, chỉ cần Node.js 18.17 trở lên.
 
-- Claude Code → cài plugin (ngay dưới).
-- Codex / Copilot / Cursor / Kiro → xem [Dùng với Codex, Copilot, Cursor, Kiro](#dùng-với-codex-copilot-cursor-kiro).
+## Nên dùng khi nào
 
-Cài **một** plugin cho Claude Code — skill, MCP tool và CLI gói chung, dùng được ở **mọi repo**.
-Yêu cầu Node.js >= 18.17.
+Ưu điểm:
+
+- AI chỉ thấy những file bạn share cho email của service account. Drive cá nhân và các file
+  khác của bạn nằm ngoài tầm với của nó.
+- Mặc định là readonly. Hai tool ghi (`gdrive_sheet_write`, `gdrive_upload`) bị ẩn khỏi danh
+  sách tool, nên model không gọi được chúng cho tới khi bạn bật `readwrite`.
+- Một lần cấu hình dùng cho mọi client. Máy có cả plugin Claude lẫn Cursor hay Codex thì tất cả
+  đọc chung một file credential.
+- Đọc được `.xlsx`, `.docx`, `.pptx` nằm trên Drive mà không cần Python hay LibreOffice.
+  Google Slides được export sang `.pptx` rồi đọc từng slide, nên ranh giới giữa các slide còn
+  nguyên.
+- `gdrive_sheet_read` luôn trả về danh sách mọi tab kèm gid. Đọc nhầm tab thì gọi lại ngay với
+  đúng tên tab.
+- Chạy được trong CI và script qua biến môi trường (`GOOGLE_SERVICE_ACCOUNT_JSON`), không cần ai
+  đăng nhập.
+- Không có dependency: `googleapis` nặng 207 MB khi giải nén, còn gói này không cài thêm gì.
+
+Nhược điểm:
+
+- Phải tạo GCP project, bật Drive API và Sheets API, rồi tạo service account và tải file key.
+  Lần đầu mất khoảng 5 phút.
+- Mỗi file hoặc thư mục phải được share cho email của service account thì mới đọc được. Nếu tổ
+  chức của bạn dùng Google Workspace và chặn share ra ngoài domain, hoặc cấm tạo key cho service
+  account, bạn sẽ cần quản trị viên mở quyền.
+- Service account không có dung lượng My Drive, nên upload chỉ chạy vào Shared Drive.
+- Khả năng ghi chỉ gồm điền ô trong Sheets và upload file. Không sửa được nội dung Docs, không
+  quản lý quyền share, không xoá file.
+- PDF chỉ tải về, không trích chữ. File Office đời cũ (`.doc`, `.xls`, `.ppt`) bị từ chối.
+- File key của service account là một secret dài hạn nằm trên đĩa (chmod 600). Lộ file đó thì
+  phải thu hồi key trong GCP Console.
+- Chưa có trên npm (tên `gdrive-cli` ở đó là gói của người khác), phải cài từ GitHub.
+
+### So với connector Google Drive của Claude
+
+Connector Google Drive có sẵn trong Claude đăng nhập bằng tài khoản Google của bạn qua OAuth và
+thấy mọi file tài khoản đó thấy. Theo danh sách tool hiện có, nó tìm kiếm trên toàn Drive, đọc
+nội dung, xem metadata và quyền, đồng thời tạo, sửa, copy, share và chuyển file vào thùng rác.
+Connector chỉ chạy trong các sản phẩm của Claude.
+
+| | gdrive-cli | Connector Google Drive của Claude |
+|---|---|---|
+| Danh tính | Service account riêng | Tài khoản Google của bạn (OAuth) |
+| AI thấy gì | Chỉ file đã share cho service account | Mọi thứ tài khoản bạn thấy |
+| Cài đặt | GCP project, file key, share từng file | Bấm kết nối, đăng nhập |
+| Client | Claude Code, Codex, Copilot, Cursor, Kiro, client MCP bất kỳ | Claude |
+| Script và CI | Có (CLI, thư viện, biến môi trường) | Không |
+| Ghi | Ô trong Sheets, upload vào Shared Drive | Tạo, sửa, copy, share, xoá file |
+| Chặn ghi mặc định | Tool ghi bị ẩn tới khi bật `readwrite` | Theo cấu hình connector |
+| Chạy ở đâu | Trên máy bạn, gọi thẳng Google API | Qua hạ tầng của Claude |
+
+Chọn gdrive-cli khi bạn muốn giới hạn chính xác những gì AI đọc được, khi dùng client không
+phải Claude, hoặc khi cần chạy trong script và CI. Chọn connector khi bạn chỉ chat trong Claude,
+muốn AI tìm được mọi file của mình, cần sửa hay share file, hoặc không muốn đụng tới GCP.
+
+## Cài cho Claude Code
 
 ```
-/plugin marketplace add dangchison/gdrive-cli
+/plugin marketplace add sdc-ren/gdrive-cli
 /plugin install gdrive@gdrive-cli
 ```
 
-Rồi chạy skill `/gdrive-setup` để trỏ tới file JSON key của service account.
-**Private key không bao giờ đi qua cuộc hội thoại** — bạn chỉ đưa đường dẫn, CLI tự đọc.
+Sau đó chạy skill `/gdrive-setup` và đưa đường dẫn tới file JSON key của service account. CLI tự
+đọc file, nên private key không đi qua cuộc hội thoại.
 
-Cấu hình nằm trong thư mục data của plugin (`~/.claude/plugins/data/…`, chmod 600), tự xoá khi
-gỡ plugin. **Không đụng `settings.json`, không rải file khắp `~/.claude`.**
+Plugin lưu cấu hình trong thư mục data của nó (`~/.claude/plugins/data/…`, chmod 600) và thư mục
+này bị xoá khi gỡ plugin. Plugin không sửa `settings.json`.
 
-## Claude dùng nó thế nào
-
-Sau khi cài, Claude có sẵn các MCP tool — không cần allow-rule, không phụ thuộc skill có kích
-hoạt đúng hay không:
-
-| Tool | Việc |
-|---|---|
-| `gdrive_sheet_read` | Google Sheets **và** `.xlsx` trên Drive; luôn trả kèm danh sách tab |
-| `gdrive_read_document` | Docs, Slides, `.docx`, `.pptx`, `.csv`, `.txt` |
-| `gdrive_file_info` | File này là gì, đọc bằng tool nào |
-| `gdrive_list` · `gdrive_download` | Tìm và tải file |
-| `gdrive_sheet_write` · `gdrive_upload` | Chỉ hiện ở chế độ `readwrite` |
-
-Mặc định là **readonly**: hai tool ghi bị **ẩn hẳn** khỏi danh sách — model không gọi được thứ
-nó không nhìn thấy. Bật ghi qua bản plugin:
-`node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`.
-
-## Dùng với Codex, Copilot, Cursor, Kiro
-
-Ba lệnh, credential dùng chung cho mọi client (máy có cả plugin Claude thì dùng chung luôn với
-Claude, không tạo bản key thứ hai):
+## Cài cho Codex, Copilot, Cursor, Kiro
 
 ```bash
 npm i -g github:sdc-ren/gdrive-cli
@@ -49,121 +82,118 @@ gdrive init --sa-json ~/keys/service-account.json
 gdrive install --client cursor          # hoặc codex, copilot, copilot-cli, kiro — nhiều client: cursor,codex
 ```
 
-Khởi động lại client là có các tool `gdrive_*` ở trên. `install` chỉ **merge** đúng khoá
-`gdrive` vào file config của client, giữ nguyên mọi server khác, chạy lại bao nhiêu lần cũng
-được, và **không bao giờ ghi credential** vào đó.
+Khởi động lại client để nạp các tool `gdrive_*`. Nếu máy đã có plugin Claude, `init` ghi đè file
+credential đang dùng thay vì tạo bản thứ hai.
+
+`install` chỉ thêm hoặc thay khoá `gdrive` trong file config của client. Các server khác giữ
+nguyên, chạy lại lệnh không thay đổi gì thêm, và lệnh không ghi credential vào file đó.
 
 | `--client` | Cấp user (mặc định) | `--project` (repo đang đứng) |
 |---|---|---|
 | `codex` | `~/.codex/config.toml` | `.codex/config.toml` (Codex chỉ đọc khi project đã trust) |
 | `copilot` (VS Code) | `mcp.json` trong thư mục User của VS Code (profile mặc định) | `.vscode/mcp.json` |
-| `copilot-cli` | `~/.copilot/mcp-config.json` | — |
+| `copilot-cli` | `~/.copilot/mcp-config.json` | Không hỗ trợ |
 | `cursor` | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
 | `kiro` | `~/.kiro/settings/mcp.json` | `.kiro/settings/mcp.json` |
 
-- **Cấp user** ghi đường dẫn tuyệt đối tới `node` và server, vì app mở từ Dock/Start thường
-  không có PATH của nvm/Homebrew. Đổi phiên bản Node thì chạy lại `install`; `gdrive status`
-  báo đỏ khi đường dẫn trong config không còn tồn tại.
-- **`--project`** ghi `gdrive mcp` (không chứa đường dẫn máy cá nhân) để commit được; mọi người
-  dùng repo cần cài gdrive-cli global.
-- **`--skill`** cài kèm Agent Skill (`SKILL.md`) hướng dẫn chọn tool và xử lý lỗi, vào
-  `~/.agents/skills/gdrive` (Kiro: `~/.kiro/skills/gdrive`). Server cũng gửi hướng dẫn rút gọn
-  qua trường MCP `instructions` cho client nào đọc trường đó.
-- File config có comment (JSONC, hay gặp ở VS Code) hoặc TOML viết kiểu khó sửa an toàn thì
-  `install` **không đụng vào**, chỉ in đoạn cấu hình để bạn tự dán.
-- Client khác chưa có trong danh sách: trỏ nó vào lệnh `gdrive mcp` (MCP stdio).
+Ở cấp user, config chứa đường dẫn tuyệt đối tới `node` và tới server, vì app mở từ Dock hay
+Start menu thường không có PATH của nvm hoặc Homebrew. Đổi phiên bản Node thì chạy lại
+`install`. `gdrive status` báo đỏ khi đường dẫn trong config không còn tồn tại.
 
-Gỡ đăng ký (giữ credential): `gdrive uninstall --client cursor [--project]`.
+`--project` ghi lệnh `gdrive mcp`, không chứa đường dẫn trên máy bạn, nên file có thể commit.
+Ai dùng repo cũng cần cài gdrive-cli global.
+
+`--skill` cài thêm Agent Skill (`SKILL.md`) hướng dẫn chọn tool và xử lý lỗi vào
+`~/.agents/skills/gdrive` (Kiro dùng `~/.kiro/skills/gdrive`). Server cũng gửi một bản rút gọn
+qua trường MCP `instructions` cho client nào đọc trường này.
+
+Nếu file config có comment (JSONC, hay gặp ở VS Code) hoặc là TOML viết theo kiểu khó sửa an
+toàn, `install` để nguyên file và in ra đoạn cấu hình để bạn tự dán. Client chưa có trong bảng
+thì trỏ thẳng vào lệnh `gdrive mcp` (MCP qua stdio).
+
+Gỡ đăng ký mà vẫn giữ credential: `gdrive uninstall --client cursor [--project]`.
+
+## Các tool MCP
+
+| Tool | Việc |
+|---|---|
+| `gdrive_sheet_read` | Google Sheets và `.xlsx` trên Drive, luôn trả kèm danh sách tab |
+| `gdrive_read_document` | Docs, Slides, `.docx`, `.pptx`, `.csv`, `.txt` |
+| `gdrive_file_info` | Cho biết file là gì và nên đọc bằng tool nào |
+| `gdrive_list` · `gdrive_download` | Tìm và tải file |
+| `gdrive_sheet_write` · `gdrive_upload` | Chỉ hiện ở chế độ `readwrite` |
+
+Mọi tool nhận nguyên link dán vào và tự tách file id, gid. Bật ghi bằng
+`gdrive init --mode readwrite` (bản plugin Claude:
+`node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`). Server báo cho client danh
+sách tool đã đổi; client không hỗ trợ thông báo này thì cần mở session mới.
 
 ## Lệnh
 
-CLI vẫn còn cho việc gọi tay và cho script. Khi cài qua plugin, chạy bằng file trong plugin:
-
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" read  <url> [--sheet <tên|gid>] [--range A1:E50] [--json]
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" doc   <url> [--format markdown|text] [--notes]
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" info  <url>
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" ls    [<url-thư-mục>] [--name-contains …]
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" get   <url> --out <path>
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" put   <file> --folder <url> [--share none|anyone-reader]
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" write <url> --set L5=PASSED --set L6=FAILED
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" status
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" uninstall [--purge]   # dọn bản cài cũ; --purge xoá config plugin chứa private key
+gdrive read  <url> [--sheet <tên|gid>] [--range A1:E50] [--json]
+gdrive doc   <url> [--format markdown|text] [--notes]
+gdrive info  <url>
+gdrive ls    [<url-thư-mục>] [--name-contains …]
+gdrive get   <url> --out <path>
+gdrive put   <file> --folder <url> [--share none|anyone-reader]
+gdrive write <url> --set L5=PASSED --set L6=FAILED
+gdrive init  [--sa-json <file>|--adc] [--mode readonly|readwrite]
+gdrive status
+gdrive install   --client <tên> [--project] [--skill]
+gdrive uninstall --client <tên> [--project]   # gỡ đăng ký khỏi client
+gdrive uninstall [--purge]                    # dọn bản cài cũ; --purge xoá cả file chứa private key
+gdrive mcp                                    # chạy MCP server (stdio)
 ```
 
-Nếu cài global thì có lệnh `gdrive` (tên `gdrive-cli` trên npm là **gói khác**, phải cài từ GitHub):
+Với bản plugin Claude, thay `gdrive` bằng `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs"`.
 
-```bash
-npm i -g github:sdc-ren/gdrive-cli
-gdrive read <url>
-gdrive init --mode readwrite
-gdrive install --client <tên> [--project] [--skill]
-gdrive mcp                     # chạy MCP server (stdio)
-```
-
-Mọi lệnh nhận **thẳng URL dán vào** — tự bóc file id và gid. `read` luôn in kèm danh sách
-tất cả các tab, nên đoán nhầm tab thì gọi lại được ngay, không cần lệnh phụ để dò.
-
-Mặc định cài ở chế độ **readonly**: `write` và `put` bị từ chối ngay tại chỗ. Với service
-account, token được cấp scope `.readonly`; với ADC/gcloud, token giữ nguyên quyền đã được cấp
-cho tài khoản đó. Bật ghi bằng `init --mode readwrite`.
-
-## Vì sao zero dependency
-
-| | |
-|---|---|
-| `googleapis` | **207 MB** giải nén |
-| gói này | 0 dependency |
-
-Auth là JWT RS256 tự ký bằng `node:crypto` rồi đổi lấy access token (~170 dòng). Đọc
-`.xlsx/.docx/.pptx` là ZIP + XML, dùng `zlib.inflateRawSync` có sẵn trong Node (~600 dòng).
-Không có gì cần cài thêm — kể cả `python3` + `openpyxl` mà cách làm cũ phải dựa vào.
+Ở chế độ readonly, `write` và `put` bị từ chối ngay. Với service account, token chỉ được cấp
+scope `.readonly`. Với ADC hoặc gcloud, token mang nguyên quyền của tài khoản đó, và giới hạn
+duy nhất là các tool ghi bị ẩn.
 
 ## Đọc được những gì
 
 | Định dạng | Đọc | Cách |
 |---|---|---|
-| Google Sheets | ✅ | Sheets API (**không** export CSV — CSV chỉ ra tab đầu) |
-| Google Docs | ✅ | `files.export` → `text/markdown` |
-| Google Slides | ✅ | export `.pptx` rồi tự parse (export `text/plain` mất ranh giới slide) |
-| `.xlsx` / `.xlsm` | ✅ | ZIP + XML |
-| `.docx` | ✅ | ZIP + XML (kèm bảng → markdown) |
-| `.pptx` | ✅ | ZIP + XML, giữ từng slide |
-| `.csv` `.txt` `.md` `.json` | ✅ | tải thẳng |
-| PDF | ⚠️ tải về | Không parse — tải xuống rồi để công cụ đọc PDF xử lý |
-| `.doc` `.xls` `.ppt` (đời cũ) | ❌ | Từ chối kèm hướng dẫn: mở trong Drive → File → Save as Google Docs |
+| Google Sheets | Có | Sheets API. Export CSV chỉ lấy được tab đầu nên không dùng |
+| Google Docs | Có | `files.export` sang `text/markdown` |
+| Google Slides | Có | Export `.pptx` rồi tự đọc. Export `text/plain` làm mất ranh giới slide |
+| `.xlsx` / `.xlsm` | Có | ZIP + XML |
+| `.docx` | Có | ZIP + XML, bảng chuyển thành markdown |
+| `.pptx` | Có | ZIP + XML, giữ từng slide |
+| `.csv` `.txt` `.md` `.json` | Có | Tải thẳng |
+| PDF | Chỉ tải về | Để công cụ đọc PDF khác xử lý |
+| `.doc` `.xls` `.ppt` | Không | Mở trong Drive, chọn File > Save as Google Docs/Sheets/Slides |
 
-`.doc/.xls/.ppt` là OLE2/CFB nhị phân. Parser đúng tốn hàng nghìn dòng, còn parser nửa vời
-trả ra rác *trông có vẻ đúng* — kiểu hỏng tệ nhất khi kết quả sẽ được dùng để ra quyết định.
+Các định dạng Office đời cũ là file nhị phân OLE2. Một parser đúng cho chúng dài hàng nghìn
+dòng, còn parser làm dở thường trả ra chữ trông hợp lý nhưng sai. Gói chọn báo lỗi rõ ràng.
+
+Auth là JWT RS256 tự ký bằng `node:crypto` (khoảng 170 dòng). Bộ đọc OOXML dùng
+`zlib.inflateRawSync` có sẵn trong Node (khoảng 600 dòng).
 
 ## Credential
 
-Tìm theo thứ tự, dừng ở cái đầu tiên có:
+Thứ tự tìm, dừng ở nguồn đầu tiên có:
 
-1. Tham số truyền thẳng vào `createClient({credentials})`
-2. `GOOGLE_SERVICE_ACCOUNT_JSON` (JSON thô hoặc base64) ← thân thiện CI nhất
+1. Tham số `createClient({credentials})`
+2. `GOOGLE_SERVICE_ACCOUNT_JSON` (JSON thô hoặc base64), tiện nhất cho CI
 3. `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_PRIVATE_KEY`
 4. `DRIVE_SERVICE_ACCOUNT_EMAIL` + `DRIVE_PRIVATE_KEY`
 5. `GOOGLE_APPLICATION_CREDENTIALS` (đường dẫn file key)
-6. File config (chmod 600, do `gdrive init` ghi), dò lần lượt:
-   `$GDRIVE_CONFIG_DIR` → thư mục data plugin Claude (`~/.claude/plugins/data/gdrive*`) →
-   thư mục chung (`~/.config/gdrive-cli`, Windows `%APPDATA%\gdrive-cli`) →
-   `~/.claude/gdrive.json` nếu bạn từng cài kiểu cũ. Máy có cả plugin Claude lẫn client AI
-   khác thì mọi bên dùng chung một file — `init` ghi đè file đang dùng, không tạo bản thứ hai.
-7. ADC của gcloud — **opt-in**, chỉ chạy sau `init --adc`
-8. `gcloud auth print-access-token` — **opt-in**, chỉ chạy sau `init --adc`
+6. File config do `gdrive init` ghi (chmod 600), dò lần lượt `$GDRIVE_CONFIG_DIR`, thư mục data
+   của plugin Claude (`~/.claude/plugins/data/gdrive*`), thư mục chung (`~/.config/gdrive-cli`,
+   trên Windows là `%APPDATA%\gdrive-cli`), rồi `~/.claude/gdrive.json` của bản cài cũ
+7. ADC của gcloud, chỉ khi đã chạy `gdrive init --adc`
+8. `gcloud auth print-access-token`, cũng chỉ sau `gdrive init --adc`
 
-Env đứng trước file config là cố ý: CI không có file config nhưng có secret trong env.
-ADC/gcloud bị tắt mặc định vì chúng chạy bằng danh tính cá nhân của người dùng, không phải
-service account riêng của plugin.
+Biến môi trường đứng trước file config vì CI thường có secret trong env và không có file config.
+ADC và gcloud tắt mặc định vì chúng chạy bằng tài khoản cá nhân của bạn chứ không phải service
+account.
 
-> **Service account là một danh tính riêng, có email riêng.** Nó không thấy gì cho tới khi
-> bạn Share file/folder cho email đó — Viewer để đọc, Editor để ghi.
-
-> **Service account không có dung lượng My Drive.** Mọi thao tác GHI file vào My Drive đều
-> thất bại `403 storageQuotaExceeded`, kể cả khi đã share Editor. Muốn upload thì phải dùng
-> Shared Drive.
+Service account có email riêng và không thấy file nào cho tới khi bạn share cho email đó (Viewer
+để đọc, Editor để ghi). Nó cũng không có dung lượng My Drive: mọi lệnh ghi file vào My Drive
+đều lỗi `403 storageQuotaExceeded`, kể cả khi đã share quyền Editor.
 
 ## Dùng như thư viện
 
@@ -175,7 +205,7 @@ const { id, gid } = parseGoogleUrl('https://docs.google.com/spreadsheets/d/…/e
 const { rows, sheet, sheets } = await readSheet(client, id, { gid });
 ```
 
-Có sẵn facade mang hình dạng client `googleapis` để migrate code cũ mà không phải sửa chỗ gọi:
+Để chuyển code đang dùng `googleapis` mà không sửa chỗ gọi, có sẵn một facade cùng hình dạng:
 
 ```js
 import { createSheetsCompatClient } from 'gdrive-cli/sheets-compat';
@@ -190,13 +220,13 @@ await sheets.spreadsheets.values.get({ spreadsheetId, range: "'Tab'!A1:C3" }); /
 node --test
 ```
 
-179 test, không cần mạng và không cần credential: chữ ký JWT được verify bằng keypair sinh
-tại chỗ, fixture ZIP/OOXML dựng in-memory bằng `zlib.deflateRawSync`, và cả luồng
-init/uninstall chạy trên một HOME tạm. Riêng MCP server được chạy như tiến trình con thật
-và feed byte-stream JSON-RPC vào — bắt được cả ca stdout bị nhiễm thứ không phải JSON.
+Bộ test có 211 test, chạy không cần mạng và không cần credential. Chữ ký JWT được kiểm bằng cặp
+khoá sinh ngay lúc chạy, fixture ZIP/OOXML dựng trong bộ nhớ, còn `init`, `install` và
+`uninstall` chạy trên HOME tạm. MCP server được chạy như tiến trình con thật để bắt cả trường
+hợp stdout lẫn thứ không phải JSON-RPC. CI chạy trên Linux, macOS và Windows với Node 18 và 22.
 
-Ngoài ra bộ đọc `.xlsx` đã được đối chiếu với `python3` + `openpyxl` trên 6 file thật tải từ
-Drive: **3859 ô, 0 lệch**.
+Bộ đọc `.xlsx` từng được đối chiếu với `python3` + `openpyxl` trên 6 file thật tải từ Drive:
+3859 ô, không lệch ô nào.
 
 ## Giấy phép
 
