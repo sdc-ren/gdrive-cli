@@ -13,6 +13,13 @@ const UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 // Ngưỡng Google khuyến nghị chuyển sang resumable.
 const MULTIPART_LIMIT = 5 * 1024 * 1024;
 
+// Timeout cho tải/xuất nội dung: timeout của request bao cả lúc đọc body nên 30 s mặc định
+// sẽ cắt ngang file lớn. Chỗ gọi ghi đè được; 0 = không timeout (CLI: người dùng tự chờ).
+const DOWNLOAD_TIMEOUT_MS = 120_000;
+
+/** Timeout cho upload theo kích thước: giả định mạng tối thiểu 256 KiB/s, sàn 120 s. */
+export const transferTimeoutMs = (bytes) => Math.max(120_000, Math.ceil(bytes / (256 * 1024)) * 1000);
+
 export const FILE_FIELDS =
   'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,driveId,parents,' +
   'capabilities(canAddChildren,canDownload),exportLinks,shortcutDetails';
@@ -70,18 +77,21 @@ export async function listFiles(
 }
 
 /** Tải nội dung nhị phân của file đã upload (không phải file native của Google). */
-export async function downloadFile(client, fileId) {
+export async function downloadFile(client, fileId, { timeoutMs = DOWNLOAD_TIMEOUT_MS } = {}) {
   return client.api({
     url: `${BASE}/files/${encodeURIComponent(fileId)}${buildQuery({ alt: 'media', ...SHARED_DRIVE_PARAMS })}`,
     responseType: 'buffer',
+    // Timeout tính cả lúc đọc body — file lớn cần rộng hơn mặc định 30 s.
+    timeoutMs,
   });
 }
 
 /** Xuất file native của Google (Docs/Sheets/Slides) sang một mimeType khác. */
-export async function exportFile(client, fileId, mimeType) {
+export async function exportFile(client, fileId, mimeType, { timeoutMs = DOWNLOAD_TIMEOUT_MS } = {}) {
   return client.api({
     url: `${BASE}/files/${encodeURIComponent(fileId)}/export${buildQuery({ mimeType })}`,
     responseType: 'buffer',
+    timeoutMs,
   });
 }
 
@@ -144,6 +154,8 @@ export async function uploadFile(
     return client.api({
       url: `${UPLOAD_BASE}/files${buildQuery({ uploadType: 'multipart', ...params })}`,
       method: 'POST',
+      idempotent: false,
+      timeoutMs: transferTimeoutMs(buffer.length),
       body: multipartBody(metadata, buffer, mimeType, boundary),
       headers: { 'content-type': `multipart/related; boundary=${boundary}` },
     });
@@ -152,6 +164,7 @@ export async function uploadFile(
   const initRes = await client.api({
     url: `${UPLOAD_BASE}/files${buildQuery({ uploadType: 'resumable', ...params })}`,
     method: 'POST',
+    idempotent: false,
     body: metadata,
     headers: {
       'x-upload-content-type': mimeType,
@@ -166,6 +179,8 @@ export async function uploadFile(
   return client.api({
     url: location,
     method: 'PUT',
+    idempotent: false,
+    timeoutMs: transferTimeoutMs(buffer.length),
     body: buffer,
     headers: { 'content-type': mimeType, 'content-length': String(buffer.length) },
   });
@@ -176,6 +191,7 @@ export async function shareFile(client, fileId, { role = 'reader', type = 'anyon
   return client.api({
     url: `${BASE}/files/${encodeURIComponent(fileId)}/permissions${buildQuery(SHARED_DRIVE_PARAMS)}`,
     method: 'POST',
+    idempotent: false,
     body: { role, type },
   });
 }
@@ -184,11 +200,26 @@ export async function createFolder(client, { name, parentId = null }) {
   return client.api({
     url: `${BASE}/files${buildQuery({ fields: FILE_FIELDS, ...SHARED_DRIVE_PARAMS })}`,
     method: 'POST',
+    idempotent: false,
     body: {
       name,
       mimeType: 'application/vnd.google-apps.folder',
       ...(parentId ? { parents: [parentId] } : {}),
     },
+  });
+}
+
+/** Đổi tên và/hoặc chuyển folder. PATCH là idempotent nên thử lại thoải mái. */
+export async function updateFile(client, fileId, { name = null, addParents = null, removeParents = null } = {}) {
+  return client.api({
+    url: `${BASE}/files/${encodeURIComponent(fileId)}${buildQuery({
+      fields: 'id,name,parents',
+      addParents: addParents ?? undefined,
+      removeParents: removeParents ?? undefined,
+      ...SHARED_DRIVE_PARAMS,
+    })}`,
+    method: 'PATCH',
+    body: name ? { name } : {},
   });
 }
 

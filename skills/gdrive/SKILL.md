@@ -1,49 +1,54 @@
 ---
 name: gdrive
-description: Dùng khi làm việc với Google Drive — người dùng dán link docs.google.com (spreadsheets/document/presentation) hoặc drive.google.com, hoặc nói "đọc sheet này", "lấy dữ liệu từ Google Sheet", "đọc file docx/xlsx/slide trên Drive", "ghi kết quả vào sheet", "upload lên Drive", "tìm file trên Drive". Kèm cách xử lý 3 lỗi hay gặp nhất (403 chưa share, quota Shared Drive, file Office đời cũ).
-version: 0.3.0
+description: Dùng khi làm việc với Google Drive — người dùng dán link docs.google.com hoặc drive.google.com, hoặc nói "đọc sheet này", "lấy dữ liệu từ Google Sheet", "đọc file docx/xlsx/slide trên Drive", "ghi kết quả vào sheet", "tạo doc/sheet trong folder", "tìm file trong folder". Kèm cách xử lý lỗi ngoài phạm vi folder, 403 chưa share, và file Office đời cũ.
+version: 0.4.0
 ---
 
-# Google Drive qua service account
+# Google Drive qua service account, giới hạn theo folder
 
-Các tool `gdrive_*` đã sẵn sàng — dùng thẳng, **mọi tool nhận link dán vào nguyên văn**, không
-cần tự bóc file id hay gid.
+Plugin chỉ thấy các folder người dùng đã cho phép. Bắt đầu bằng `drive_ls` không tham số để biết
+tên gợi nhớ (alias) và quyền của từng folder.
 
 ## Chọn tool nào
 
-| Loại | Tool |
+| Việc | Tool |
 |---|---|
-| Google Sheets, `.xlsx` trên Drive | `gdrive_sheet_read` |
-| Google Docs, Slides, `.docx`, `.pptx`, `.csv`, `.txt`, `.md` | `gdrive_read_document` |
-| PDF, ảnh, định dạng khác | `gdrive_download` rồi đọc file đã tải |
-| Chưa chắc file là gì | `gdrive_file_info` **trước** — rẻ hơn nhiều so với đoán sai rồi ăn lỗi |
+| Xem folder được phép, hoặc nội dung một folder | `drive_ls` |
+| Đọc bất kỳ file nào: Sheet/xlsx ra TSV, Doc/Slide/docx/pptx ra markdown | `drive_read` |
+| Ghi ô hoặc thêm dòng vào Google Sheet | `sheet_write` |
+| Tạo folder, Google Doc (từ markdown), Google Sheet (từ CSV/TSV) | `drive_create` |
+| Đổi tên, chuyển file sang folder khác | `drive_move` |
 
-`gdrive_sheet_read` luôn trả kèm **danh sách mọi tab + gid**. Đoán nhầm tab thì gọi lại với
-tham số `sheet`, không cần tool phụ để dò.
+Mọi `target` nhận alias (`test-run`), đường dẫn `test-run/sub/file`, link Google dán nguyên, hoặc id.
+Không thấy `sheet_write`, `drive_create`, `drive_move` nghĩa là không folder nào có quyền `write`.
 
-## Ba lỗi hay gặp — biết trước thì khỏi loay hoay
+## Đọc sheet lớn mà không đổ cả bảng vào context
 
-**403 / không có quyền.** Service account là **một danh tính riêng có email riêng**; nó không
-thấy gì cho tới khi được share. Lỗi trả về kèm sẵn email đó — đưa cho người dùng và bảo họ
-Share (Viewer để đọc, Editor để ghi). **Không có cách vòng nào khác**, đừng thử tool khác.
+- Dòng đầu của kết quả có `tabs: …` và `rows a-b/total · next=<offset>`. Đọc tiếp bằng
+  `offset: <next>`.
+- Chỉ lấy cột cần: `columns: ["ID","Trạng thái"]`. Chỉ lấy dòng cần: `where: {"Trạng thái":"FAIL"}`.
+- Mặc định 200 dòng một trang, tối đa 2000.
 
-**403 `storageQuotaExceeded` khi upload.** Service account **không có dung lượng My Drive**.
-Đích upload phải nằm trên **Shared Drive**; share Editor một thư mục My Drive là không đủ.
+## Lỗi hay gặp
 
-**`.doc` / `.xls` / `.ppt` đời cũ.** Không đọc được (nhị phân OLE2) và **cố ý không hỗ trợ** —
-parser nửa vời trả ra chữ trông có vẻ đúng nhưng sai, nguy hiểm hơn báo lỗi thẳng. Bảo người
-dùng mở trong Drive → File → "Lưu dưới dạng Google Docs/Sheets" rồi đưa link bản mới.
+Lỗi luôn bắt đầu bằng `✗`.
 
-## Vài điều nên làm
+- **Ngoài phạm vi.** File không nằm trong folder được phép. Không có cách vòng: bảo người dùng
+  chạy `gdrive folder add <link-folder> [--access write]` rồi thử lại.
+- **Chỉ đọc.** Folder có quyền `read`. Người dùng bật ghi bằng `gdrive folder set <tên> --access write`.
+- **403 chưa share.** Service account có email riêng (hiện trong lỗi); người dùng phải Share
+  folder cho email đó, Viewer để đọc, Editor để ghi.
+- **Chưa chắc đã ghi.** Mất kết nối giữa lúc thêm dòng. Đọc lại cuối bảng bằng `drive_read`
+  trước khi gọi lại `sheet_write`, kẻo ghi trùng.
+- **storageQuotaExceeded.** Service account không có dung lượng My Drive. `drive_create` chỉ
+  chạy trong folder trên Shared Drive; `sheet_write` vào sheet có sẵn không bị giới hạn này (quota chỉ chặn tạo file mới).
+- **`.doc` / `.xls` / `.ppt` đời cũ.** Cố ý không hỗ trợ. Bảo người dùng mở trong Drive, chọn
+  File > Save as Google Docs/Sheets/Slides rồi đưa link mới.
 
-- Kết quả có trường `warnings` (nội dung bị cắt, header/footer không trích được, có tracked
-  changes…) → **nói lại cho người dùng**, đừng lặng lẽ bỏ qua.
-- Link "Publish to the web" (`/d/e/2PACX-…`) **không chứa file id** — bảo người dùng mở file
-  rồi copy link trên thanh địa chỉ.
-- Không thấy tool `gdrive_sheet_write` / `gdrive_upload` nghĩa là đang ở chế độ **readonly**.
-  Muốn ghi thì người dùng chạy `gdrive init --mode readwrite` (bản plugin Claude Code:
-  `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite`). Server sẽ báo đổi danh
-  sách tool; client hỗ trợ `listChanged` sẽ lấy lại tool ghi ở request kế tiếp, client không
-  hỗ trợ thì mở session mới.
-- Chưa cấu hình credential → người dùng chạy `gdrive init --sa-json <đường-dẫn-key.json>`
-  (trong Claude Code: skill `gdrive-setup`). Không bao giờ hỏi nội dung file key.
+## Nên làm
+
+- Kết quả có dòng `# warnings:` thì nói lại cho người dùng.
+- Link "Publish to the web" (`/d/e/2PACX-…`) không chứa file id; bảo người dùng copy link trên
+  thanh địa chỉ khi mở file.
+- Không bao giờ hỏi người dùng dán nội dung file key. Chưa có credential thì người dùng chạy
+  `gdrive init --sa-json <đường-dẫn-key.json>` (Claude Code: skill `gdrive-setup`).

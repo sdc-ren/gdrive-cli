@@ -2,19 +2,23 @@
 
 import { createTokenSource } from './auth.mjs';
 import { resolveCredentials, scopesForMode } from './credentials.mjs';
-import { request } from './http.mjs';
+import { createLimiter, request } from './http.mjs';
 
 /**
  * @param {object} [opts]
- * @param {object} [opts.credentials]  {clientEmail, privateKey} hoặc {accessToken} — bỏ qua thì tự dò
+ * @param {object} [opts.credentials]   {clientEmail, privateKey} hoặc {accessToken} — bỏ qua thì tự dò
  * @param {'readonly'|'readwrite'} [opts.mode]
- * @param {number} [opts.retries]  số lần thử lại cho lỗi tạm thời (CLI dùng 2, thư viện dùng 0)
- * @param {boolean} [opts.allowAdc]  cho phép fallback ADC/gcloud khi dùng như thư viện
+ * @param {number} [opts.retries]       số lần thử lại lỗi tạm thời (CLI/MCP dùng 4, thư viện dùng 0)
+ * @param {number} [opts.concurrency]   số request Google chạy cùng lúc tối đa (mặc định 4)
+ * @param {number} [opts.timeoutMs]     timeout mỗi request (mặc định 30 giây)
+ * @param {boolean} [opts.allowAdc]
  */
 export function createClient({
   credentials = null,
   mode = 'readwrite',
   retries = 0,
+  concurrency = 4,
+  timeoutMs = 30_000,
   allowAdc = false,
   env = process.env,
   home = undefined,
@@ -24,6 +28,7 @@ export function createClient({
   const resolved = resolveCredentials({ explicit: credentials, env, allowAdc, ...(home ? { home } : {}) });
   const scopes = scopesForMode(mode);
   const tokenSource = createTokenSource(resolved, { fetchImpl, now });
+  const limit = createLimiter(concurrency);
 
   async function api(opts) {
     const headers = { ...(opts.headers ?? {}) };
@@ -32,20 +37,24 @@ export function createClient({
 
     const send = async () => {
       const token = await tokenSource.getToken(scopes);
-      return request({ ...opts, token, headers, retries, fetchImpl });
+      return request({ retries, timeoutMs, ...opts, token, headers, fetchImpl });
     };
 
-    try {
-      return await send();
-    } catch (err) {
-      // Token bị thu hồi giữa chừng (xoay key, gcloud logout). Vứt cache, thử đúng 1 lần.
-      if (Number(err?.code) === 401) {
-        tokenSource.invalidate(scopes);
-        return send();
+    return limit(async () => {
+      try {
+        return await send();
+      } catch (err) {
+        // Token bị thu hồi giữa chừng (xoay key, gcloud logout). Vứt cache, thử đúng 1 lần.
+        if (Number(err?.code) === 401) {
+          tokenSource.invalidate(scopes);
+          return send();
+        }
+        throw err;
       }
-      throw err;
-    }
+    });
   }
 
-  return { api, tokenSource, scopes, mode, credentials: resolved };
+  // Không trả `resolved` ra ngoài: nó chứa private key, và JSON.stringify(client) sẽ in ra.
+  const identity = { type: resolved.type, clientEmail: resolved.clientEmail ?? null, source: resolved.source ?? null };
+  return { api, tokenSource, scopes, mode, identity };
 }

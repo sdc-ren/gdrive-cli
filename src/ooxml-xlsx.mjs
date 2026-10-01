@@ -126,12 +126,25 @@ function parseWorkbook(xml) {
     date1904 = attrs.date1904 === '1' || attrs.date1904 === 'true';
   });
 
+  // Tiền tố của namespace relationships không cố định ("r" là thói quen, không phải luật).
+  const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const relPrefixes = new Set(['r']);
+  const collectPrefixes = (attrs) => {
+    for (const [k, v] of Object.entries(attrs)) if (k.startsWith('xmlns:') && v === REL_NS) relPrefixes.add(k.slice(6));
+  };
+  forEachElement(xml, 'workbook', ({ attrs }) => collectPrefixes(attrs));
+  const relId = (attrs) => {
+    collectPrefixes(attrs);
+    for (const p of relPrefixes) if (attrs[`${p}:id`]) return attrs[`${p}:id`];
+    return Object.entries(attrs).find(([k]) => /^[\w.-]+:id$/.test(k))?.[1] ?? attrs.id ?? '';
+  };
+
   forEachElement(xml, 'sheets', ({ inner }) => {
     forEachElement(inner, 'sheet', ({ attrs }) => {
       sheets.push({
         title: attrs.name ?? '',
         gid: String(attrs.sheetId ?? ''),
-        rid: attrs['r:id'] ?? attrs.id ?? '',
+        rid: relId(attrs),
         state: attrs.state ?? 'visible',
         index: sheets.length,
       });

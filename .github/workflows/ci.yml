@@ -22,3 +22,4 @@ jobs:
       # Zero dependency → không có bước install. Fixture ZIP/OOXML dựng in-memory bằng
       # zlib nên test không cần credential Google lẫn file nhị phân trong repo.
       - run: node --test
+      - run: node bench/tokens.mjs

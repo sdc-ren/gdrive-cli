@@ -16,25 +16,13 @@ import {
   readConfigWithSource,
 } from './config.mjs';
 import { resolveCredentials, scopesForMode } from './credentials.mjs';
+import { loadFolders } from './folders.mjs';
+import { nodeOk } from './node-version.mjs';
+import { NO_FOLDERS_MESSAGE } from './scope.mjs';
 
 const OK = '✅';
 const WARN = '⚠️ ';
 const BAD = '❌';
-const MIN_NODE = { major: 18, minor: 17, patch: 0 };
-
-function parseNodeVersion(version) {
-  const [, major = '0', minor = '0', patch = '0'] = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version)) ?? [];
-  return { major: Number(major), minor: Number(minor), patch: Number(patch) };
-}
-
-function nodeOk(version) {
-  const got = parseNodeVersion(version);
-  return (
-    got.major > MIN_NODE.major ||
-    (got.major === MIN_NODE.major && got.minor > MIN_NODE.minor) ||
-    (got.major === MIN_NODE.major && got.minor === MIN_NODE.minor && got.patch >= MIN_NODE.patch)
-  );
-}
 
 export async function runStatus({
   home = homedir(),
@@ -90,6 +78,21 @@ export async function runStatus({
     log(`${WARN} Bỏ qua CLAUDE_PLUGIN_DATA=${foreign} — thư mục của plugin khác, không phải gdrive.`);
   } else if (env.CLAUDE_PLUGIN_DATA) {
     log(`${OK} Thư mục data plugin Claude: ${pluginDataDir(env, home)}`);
+  }
+
+  // 1a. Danh sách folder được phép — không có thì mọi tool MCP đều từ chối.
+  try {
+    const folders = loadFolders({ config: cfg, env });
+    if (!folders.length) {
+      log(`${BAD} ${NO_FOLDERS_MESSAGE}`);
+      fail();
+    } else {
+      log(`${OK} Folder được phép: ${folders.length}${env.GDRIVE_FOLDERS ? ' (lấy từ GDRIVE_FOLDERS)' : ''}`);
+      for (const f of folders) log(`   ${f.name}  ${f.access}  ${f.id}`);
+    }
+  } catch (err) {
+    log(`${BAD} Danh sách folder hỏng: ${err.message}`);
+    fail();
   }
 
   // 1b. Client AI khác đã đăng ký MCP server chưa (plugin Claude tự lo, không liệt kê).

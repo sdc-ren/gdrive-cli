@@ -119,3 +119,45 @@ test('pptxToText format text dùng dải phân cách thay vì heading', () => {
   assert.match(text, /--- Slide 1: Slide một ---/);
   assert.doesNotMatch(text, /^##/m);
 });
+
+const presentation = (rids) => `<p:presentation xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst>${rids.map((r, i) => `<p:sldId id="${256 + i}" r:id="${r}"/>`).join('')}</p:sldIdLst></p:presentation>`;
+const rels = (pairs) => `<Relationships>${pairs.map(([id, target, type = 'slide']) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}" Target="${target}"/>`).join('')}</Relationships>`;
+
+test('thứ tự slide theo sldIdLst + rels, KHÔNG theo số trong tên file', () => {
+  const buf = makeZip([
+    { name: 'ppt/presentation.xml', data: presentation(['rId3', 'rId2']) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: rels([['rId2', 'slides/slide1.xml'], ['rId3', '/ppt/slides/slide2.xml']]) },
+    { name: 'ppt/slides/slide1.xml', data: slide('Một') },
+    { name: 'ppt/slides/slide2.xml', data: slide('Hai') },
+  ]);
+  const { slides, warnings } = readPptx(buf);
+  assert.deepEqual(slides.map((s) => s.title), ['Hai', 'Một']);
+  assert.deepEqual(slides.map((s) => s.number), [1, 2]);
+  assert.equal(warnings.some((w) => /thứ tự/.test(w)), false);
+});
+
+test('thiếu presentation.xml → rơi về thứ tự theo tên file kèm warning', () => {
+  const { slides, warnings } = readPptx(pptx());
+  assert.deepEqual(slides.map((s) => s.title), ['Slide một', 'Slide hai', 'Slide mười']);
+  assert.ok(warnings.some((w) => /thứ tự slide/.test(w)));
+});
+
+test('notes ghép qua slides/_rels/slideN.xml.rels, không theo số', () => {
+  const buf = makeZip([
+    { name: 'ppt/slides/slide1.xml', data: slide('A') },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: rels([['rId9', '../notesSlides/notesSlide7.xml', 'notesSlide']]) },
+    { name: 'ppt/notesSlides/notesSlide7.xml', data: notes('ghi chú của A') },
+    { name: 'ppt/notesSlides/notesSlide1.xml', data: notes('KHÔNG phải của A') },
+  ]);
+  const { slides } = readPptx(buf, { includeNotes: true });
+  assert.equal(slides[0].notes, 'ghi chú của A');
+});
+
+test('slide có rels nhưng không trỏ notesSlide → không đoán notes theo số', () => {
+  const buf = makeZip([
+    { name: 'ppt/slides/slide1.xml', data: slide('A') },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: rels([['rId1', '../slideLayouts/slideLayout1.xml', 'slideLayout']]) },
+    { name: 'ppt/notesSlides/notesSlide1.xml', data: notes('của slide khác') },
+  ]);
+  assert.equal(readPptx(buf, { includeNotes: true }).slides[0].notes, null);
+});

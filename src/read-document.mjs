@@ -10,10 +10,24 @@ import { openXlsx } from './ooxml-xlsx.mjs';
 import { readSheet } from './sheets.mjs';
 
 export class UnsupportedFormatError extends Error {
-  constructor(message, { kind } = {}) {
+  constructor(message, { kind, code = 'UNSUPPORTED' } = {}) {
     super(message);
     this.name = 'UnsupportedFormatError';
     this.kind = kind;
+    this.code = code;
+  }
+}
+
+/** Trên ngưỡng này thì không tải vào RAM để đọc — người dùng tải bằng CLI `gdrive get`. */
+export const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+
+function assertDownloadable(meta) {
+  if (Number(meta.size ?? 0) > MAX_DOWNLOAD_BYTES) {
+    throw new UnsupportedFormatError(
+      `"${meta.name}" nặng ${(Number(meta.size) / 1024 / 1024).toFixed(0)} MB, quá ngưỡng ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB để đọc thẳng. ` +
+        'Tải về bằng: gdrive get <url> --out <file>',
+      { kind: KIND.OTHER, code: 'TOO_LARGE' },
+    );
   }
 }
 
@@ -32,14 +46,16 @@ export async function inspect(client, fileId) {
 export async function readTable(
   client,
   fileId,
-  { sheet = null, gid = null, range = null, maxRows = 500, valueRenderOption = 'FORMATTED_VALUE' } = {},
+  { sheet = null, gid = null, range = null, maxRows = 500, valueRenderOption = 'FORMATTED_VALUE', meta = null } = {},
 ) {
-  const { meta, kind } = await inspect(client, fileId);
+  // Có `meta` sẵn (chỗ gọi đã files.get để kiểm phạm vi) thì không gọi lại.
+  const picked = meta ? { meta, ...classify(meta.mimeType, meta.name) } : await inspect(client, fileId);
+  const { meta: m, kind } = picked;
 
   if (kind === KIND.GOOGLE_SHEET) {
     const res = await readSheet(client, fileId, { sheet, gid, range, valueRenderOption });
     return finishTable({
-      name: meta.name,
+      name: m.name,
       source: 'sheets-api',
       title: res.spreadsheetTitle,
       sheet: res.sheet,
@@ -50,23 +66,24 @@ export async function readTable(
   }
 
   if (kind === KIND.XLSX) {
+    assertDownloadable(m);
     const wb = openXlsx(await downloadFile(client, fileId));
-    const picked = wb.readSheet({ sheet, gid });
+    const sel = wb.readSheet({ sheet, gid });
     return finishTable({
-      name: meta.name,
+      name: m.name,
       source: 'xlsx',
-      title: meta.name,
-      sheet: picked.sheet,
+      title: m.name,
+      sheet: sel.sheet,
       // Kích thước thật chỉ biết sau khi parse từng sheet — điền cho sheet đang đọc.
-      sheets: wb.sheets.map((s) => (s.gid === picked.sheet.gid ? picked.sheet : s)),
-      rows: picked.rows,
+      sheets: wb.sheets.map((s) => (s.gid === sel.sheet.gid ? sel.sheet : s)),
+      rows: sel.rows,
       maxRows,
       warnings: range ? ['Bỏ qua --range: file .xlsx đọc nguyên sheet.'] : [],
     });
   }
 
   throw new UnsupportedFormatError(
-    `"${meta.name}" không phải bảng (${meta.mimeType}). Dùng \`gdrive doc\` cho văn bản, ` +
+    `"${m.name}" không phải bảng (${m.mimeType}). Dùng \`gdrive doc\` cho văn bản, ` +
       'hoặc `gdrive info` để xem đọc được bằng cách nào.',
     { kind },
   );
@@ -94,21 +111,22 @@ function finishTable({ name, source, title, sheet, sheets, rows, maxRows, warnin
 export async function readDocument(
   client,
   fileId,
-  { format = 'markdown', includeNotes = false, maxChars = 100_000 } = {},
+  { format = 'markdown', includeNotes = false, maxChars = 100_000, meta = null } = {},
 ) {
-  const { meta, kind, note } = await inspect(client, fileId);
+  const picked = meta ? { meta, ...classify(meta.mimeType, meta.name) } : await inspect(client, fileId);
+  const { meta: m, kind, note } = picked;
 
   if (kind === KIND.LEGACY || kind === KIND.PDF || kind === KIND.OTHER || kind === KIND.FOLDER) {
-    throw new UnsupportedFormatError(note ?? `Không đọc được "${meta.name}" (${meta.mimeType}).`, { kind });
+    throw new UnsupportedFormatError(note ?? `Không đọc được "${m.name}" (${m.mimeType}).`, { kind });
   }
   if (kind === KIND.GOOGLE_SHEET || kind === KIND.XLSX) {
     throw new UnsupportedFormatError(
-      `"${meta.name}" là bảng — dùng \`gdrive read\` thay vì \`gdrive doc\`.`,
+      `"${m.name}" là bảng — dùng \`gdrive read\` thay vì \`gdrive doc\`.`,
       { kind },
     );
   }
 
-  const out = { name: meta.name, kind, warnings: [], slides: null };
+  const out = { name: m.name, kind, warnings: [], slides: null };
 
   if (kind === KIND.GOOGLE_DOC) {
     const buf = await exportFile(client, fileId, exportMimeFor(kind, format));
@@ -123,17 +141,20 @@ export async function readDocument(
     out.content = pptxToText(parsed, { format });
     out.warnings.push(...parsed.warnings);
   } else if (kind === KIND.DOCX) {
+    assertDownloadable(m);
     const parsed = readDocx(await downloadFile(client, fileId), { format });
     out.source = 'ooxml';
     out.content = parsed.content;
     out.warnings.push(...parsed.warnings);
   } else if (kind === KIND.PPTX) {
+    assertDownloadable(m);
     const parsed = readPptx(await downloadFile(client, fileId), { includeNotes });
     out.source = 'ooxml';
     out.slides = parsed.slides;
     out.content = pptxToText(parsed, { format });
     out.warnings.push(...parsed.warnings);
   } else {
+    assertDownloadable(m);
     out.source = 'raw';
     out.content = (await downloadFile(client, fileId)).toString('utf8');
   }
