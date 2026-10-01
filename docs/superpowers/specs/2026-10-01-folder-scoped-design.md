@@ -1,6 +1,6 @@
 # Thiết kế: gdrive-cli giới hạn theo folder, ít token, chạy ổn định (v0.4.0)
 
-Ngày: 2026-10-01 · Trạng thái: chờ duyệt
+Ngày: 2026-10-01 · Trạng thái: đã duyệt (cập nhật sau review code cùng ngày)
 
 ## Mục tiêu
 
@@ -15,6 +15,19 @@ Tiêu chí thành công:
    tại là 764 token cho 5 tool đọc; connector là 3.610.
 3. Đọc một trang 200 dòng của sheet tốn ít token hơn connector đọc cùng dữ liệu.
 4. Ghi kết quả lặp lại không lỗi vì giới hạn tốc độ của Drive và không tạo dòng trùng.
+
+## Hiện trạng đo được (2026-10-01, Drive thật)
+
+Số liệu này là mốc so sánh cho mọi thay đổi bên dưới.
+
+- Mỗi tool call có 2–4 request tuần tự tới Google, mỗi request 400–600 ms, không cache:
+  `sheet_read` 1,3–1,5 giây dù chỉ đọc 10 ô; lần đầu 2,5 giây (lấy token). `list` 0,8 giây.
+- Token (tiktoken o200k_base): schema 5 tool + instructions ≈ 1.070, connector Drive ≈ 3.610.
+  Đọc file thì gdrive đang tốn hơn connector 5–35% vì JSON thụt lề và nội dung slide bị trả hai
+  lần (`slides` cạnh `content`).
+- Lỗi phát hiện khi review (xem mục 8): `gdrive_download` ghi file tuỳ ý kể cả ở readonly;
+  Drive 403 `rateLimitExceeded` không được thử lại; không timeout; thứ tự slide pptx lấy theo tên
+  file; `read-document.mjs` và `tools.mjs` không có test.
 
 ## Ràng buộc
 
@@ -182,12 +195,39 @@ Sửa trong `src/http.mjs` và `src/client.mjs`.
   đã từ chối: 429, 403 giới hạn tốc độ, 503. Timeout hoặc lỗi mạng thì trả lỗi "chưa chắc đã
   ghi".
 - Cache trong tiến trình server:
-  - metadata sheet (tab, gid, số dòng) 5 phút, xoá khi chính server ghi vào file đó;
+  - metadata Drive (`files.get`: tên, mimeType, parents, size) và metadata Sheets
+    (`spreadsheets.get`: tab, gid, kích thước) 5 phút, xoá khi chính server ghi vào file đó;
   - phạm vi file như mục 1.
+  Nhờ vậy lần đọc lặp lại một sheet chỉ còn 1 request thay vì 3. Mục tiêu đo được: `drive_read`
+  lần hai trên cùng file dưới 700 ms (hiện 1.300–1.500 ms).
 - Giới hạn 4 request đồng thời tới Google trong một tiến trình.
 - Chỉ xin `fields` cần thiết cho mỗi lệnh.
 - `GDRIVE_DEBUG=1`: ghi ra stderr mỗi request một dòng gồm method, đường dẫn (không có query
   chứa dữ liệu), status, thời gian, số lần thử, kích thước response.
+- Giới hạn kích thước file tải về để đọc: từ chối file có `size` trên 50 MB với lỗi gợi ý dùng
+  CLI `gdrive get`. `inflateRawSync` trong `zip.mjs` đặt `maxOutputLength` 256 MB để chặn zip
+  bomb.
+- `writeConfig` ghi file tạm cùng thư mục với `mode: 0o600` rồi `rename`, để server đang chạy
+  không bao giờ đọc được file dở và rơi xuống config cũ.
+- Test `test/http.test.mjs` hiện khoá hành vi "403 không thử lại"; test này được viết lại theo
+  quy tắc mới (403 giới hạn tốc độ thì thử lại, 403 thiếu quyền thì không).
+
+### Sửa lỗi ngoài phạm vi tính năng, làm cùng đợt
+
+- **Bảo mật:** `gdrive_download` và `gdrive_upload` bỏ khỏi MCP (đã quyết ở mục 2). CLI `get`
+  giữ nguyên vì người dùng gõ tay. Không còn đường nào để model ghi hoặc đọc file tuỳ ý trên
+  máy qua MCP.
+- **Thứ tự slide:** `ooxml-pptx.mjs` đọc `ppt/presentation.xml` (`sldIdLst`) và
+  `ppt/_rels/presentation.xml.rels` để xếp slide; ghép notes qua `slides/_rels/slideN.xml.rels`.
+  Thiếu các part này thì mới rơi về thứ tự theo tên file, kèm warning.
+- **docx `format: text`:** bỏ regex xoá dòng bắt đầu bằng `-` ở `ooxml-docx.mjs`, vì nó xoá cả
+  hàng bảng có số âm; thay bằng xoá đúng dòng phân cách `|---|`.
+- **xlsx:** `attrs['r:id']` đổi sang tìm thuộc tính theo local name `id` trong namespace
+  relationships, cùng cách `nsTag` đang làm.
+- **Public API:** `createClient()` không trả `credentials` chứa `privateKey`; chỉ trả
+  `{ clientEmail, type, source }`.
+- Trùng lặp nhỏ: `nodeOk` dùng chung giữa `server/index.mjs` và `status.mjs`; map MIME export
+  dùng `formats.mjs`.
 
 ## 4. Kiểm chứng trước khi code phần ghi
 
@@ -219,7 +259,17 @@ Tất cả chạy bằng `node --test`, không cần mạng, trên Linux, macOS,
   403 thiếu quyền thì không; 401 lấy token mới; `append` không thử lại khi timeout; giới hạn
   đồng thời.
 - `test/mcp-server.test.mjs` và `test/clients.test.mjs`: cập nhật tên tool, kiểm tra tool ghi
-  chỉ hiện khi có folder `write`.
+  chỉ hiện khi có folder `write`; thêm ca một tool call sau khi reload config dùng đúng credential
+  mới.
+- `test/tools.test.mjs` (mới): chạy `run()` của cả 5 tool với client giả (fetch giả trả fixture),
+  kiểm định dạng kết quả, lỗi `✗`, và không tool nào đụng tới hệ thống file.
+- `test/read-document.test.mjs` (mới): `max_chars` cắt đúng và không còn trường thừa, cảnh báo
+  khi `range` dùng với xlsx, phân loại file.
+- `test/ooxml-pptx.test.mjs`: thứ tự slide theo `sldIdLst` khác thứ tự tên file; notes qua rels.
+- `test/ooxml-docx.test.mjs`: bảng có số âm ở cột đầu còn nguyên trong `format: text`.
+- `test/ooxml-xlsx.test.mjs`: rels với tiền tố namespace khác `r:`.
+- `test/install.test.mjs`: `writeConfig` không để lại file tạm, file cuối có mode 600 ngay từ
+  đầu.
 - `test/folder-cli.test.mjs`: `folder add/list/remove/set` trên HOME tạm với Drive giả.
 
 ## 6. Đo token
@@ -246,3 +296,10 @@ Phát hành v0.4.0, ghi trong CHANGELOG là thay đổi phá tương thích:
   `drive_read`; `gdrive_list` thành `drive_ls`; `gdrive_sheet_write` thành `sheet_write`;
   `gdrive_download`, `gdrive_upload` bỏ khỏi MCP.
 - Người đã chạy `gdrive install --client` không phải chạy lại: entry MCP giữ nguyên.
+
+## 8. Nguồn các phát hiện
+
+Review code ngày 2026-10-01 bởi hai lượt đọc độc lập toàn bộ `src/`, `server/`, `bin/`, `test/`,
+cùng đo hiệu năng và token trên Drive thật. Các lỗi mức High đã được xác minh lại trong code
+trước khi đưa vào spec này. Các mục Low (phân trang `list`, `protocolVersion` echo, `readJson`
+nuốt lỗi, `sheets-compat` lặp URL) ghi nhận nhưng không nằm trong v0.4.0.
