@@ -45,6 +45,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dangchison/gdrive-cli.git"
+    "url": "git+https://github.com/sdc-ren/gdrive-cli.git"
+  },
+  "homepage": "https://github.com/sdc-ren/gdrive-cli#readme",
+  "bugs": {
+    "url": "https://github.com/sdc-ren/gdrive-cli/issues"
   }
 }

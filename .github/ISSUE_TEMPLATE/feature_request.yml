@@ -1,0 +1,28 @@
+name: Đề xuất tính năng
+description: Thêm tool, thêm client, hỗ trợ định dạng mới, hoặc cải thiện lệnh có sẵn.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Bạn đang gặp vấn đề gì
+      description: Mô tả việc bạn muốn làm mà hiện chưa làm được.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Bạn đề xuất gì
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Bạn đã thử cách nào khác
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Ràng buộc của dự án
+      options:
+        - label: Đề xuất không cần thêm dependency, hoặc tôi đã giải thích vì sao cần.
+        - label: Đề xuất giữ readonly là mặc định và không mở rộng quyền ngầm.
