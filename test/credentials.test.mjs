@@ -281,7 +281,7 @@ test('createClient forward allowAdc xuống resolveCredentials', () => {
   sandbox(({ home }) => {
     writeAdc(home);
     const client = createClient({ env: {}, home, allowAdc: true });
-    assert.equal(client.credentials.type, 'authorized_user');
+    assert.equal(client.identity.type, 'authorized_user');
   });
 });
 

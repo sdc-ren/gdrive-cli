@@ -180,7 +180,7 @@ async function handle(msg) {
 function explain(err, snapshot = state) {
   const msg = String(err?.message ?? err);
   const code = Number(err?.code);
-  const email = snapshot.client?.credentials?.clientEmail;
+  const email = snapshot.client?.identity?.clientEmail;
 
   if (code === 403 || code === 404) {
     return (
