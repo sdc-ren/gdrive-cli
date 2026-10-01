@@ -88,3 +88,11 @@ test('nhiều entry, đọc đúng từng cái (offset không lệch)', () => {
     assert.equal(zip.readText(f.name), f.data, f.name);
   }
 });
+
+test('entry giải nén vượt maxOutputLength → ZipError, không RangeError trần', () => {
+  const big = Buffer.alloc(3 * 1024 * 1024, 0x61); // 3 MB chữ a, nén còn vài KB
+  const buf = makeZip([{ name: 'bomb.txt', data: big }]);
+  const zip = openZip(buf, { maxInflateBytes: 1024 * 1024 });
+  assert.throws(() => zip.readText('bomb.txt'), (e) => e.name === 'ZipError' && /quá lớn/.test(e.message));
+  assert.equal(openZip(buf).readText('bomb.txt').length, big.length, 'mặc định 256 MB vẫn đọc được');
+});
