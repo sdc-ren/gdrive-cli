@@ -182,3 +182,22 @@ Kiểm chứng thật (task cuối của plan):
   - đo lại số request mỗi lần đọc.
 - Phiên bản 0.5.0: bỏ lệnh `folder` và đổi mặc định. Bump ở 5 chỗ như các bản trước, cùng
   `test/version.test.mjs`.
+
+## Kết quả kiểm chứng (2026-10-02)
+
+Chạy MCP server thật với config của người dùng (`mode: readonly`, service account
+`packflow-uploader@…`), Node 26, `GDRIVE_DEBUG=1`.
+
+| Kiểm tra | Kết quả |
+|---|---|
+| `tools/list` ở readonly | `drive_ls,drive_read` |
+| `drive_ls` link folder `gdriver` (có `?hl=vi`) | `# gdriver (read) · 1`, đọc đúng nội dung. Tốn 1 request metadata + 1 request list |
+| `drive_ls` lần hai, cùng folder, truyền id | Metadata lấy từ cache: chỉ còn 1 request list |
+| `drive_read` id không share | `✗ 404: chưa share cho packflow-uploader@… (Viewer để đọc, Editor để ghi).` Chỉ 1 request |
+| Schema (tiktoken `o200k_base`) | readwrite 557 token (v0.4: 561), readonly 265 (không đổi), instructions 195 (v0.4: 196) |
+| Ước lượng của bench | 681/700 |
+
+So với v0.4.0, mở một file mới không còn đi ngược folder cha: v0.4.0 tốn thêm 1 request
+`files.get` cho mỗi tầng folder (cache 10 phút), v0.5.0 không tốn request nào.
+
+Phần ghi (tạo/đổi tên folder, ghi Sheet, từ chối trên mục Viewer) chưa chạy: chờ người dùng đồng ý.

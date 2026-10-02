@@ -41,12 +41,13 @@ cho nó thì AI cũng mở được khi có link.
 
 Đo ngày 2026-10-01 bằng tiktoken `o200k_base` trên Drive thật, so với bản v0.3 và connector
 Google Drive có sẵn trong Claude. Số của connector ở hai dòng đọc file được ước từ output thật
-của nó.
+của nó. Cột v0.5: schema đo lại ngày 2026-10-02; các dòng đọc file giữ số đo của v0.4, vì định dạng
+output không đổi.
 
-| Mục | v0.3 | v0.4 | Connector Google Drive của Claude |
+| Mục | v0.3 | v0.5 | Connector Google Drive của Claude |
 |---|---|---|---|
-| Schema tool, chỉ đọc | 764 (5 tool) + 305 instructions | 265 (2 tool) + 196 instructions | 2.337 (6 tool đọc) |
-| Schema tool, có quyền ghi | 1.142 (7 tool) | 561 (5 tool) | 3.610 (11 tool) |
+| Schema tool, chỉ đọc | 764 (5 tool) + 305 instructions | 265 (2 tool) + 195 instructions | 2.337 (6 tool đọc) |
+| Schema tool, có quyền ghi | 1.142 (7 tool) | 557 (5 tool) | 3.610 (11 tool) |
 | Đọc cả tab Google Sheet (25 dòng × 6 cột, tiếng Việt) | 7.334 | 6.090 | chưa đo |
 | Đọc 10 dòng đầu (`limit: 10`) | không có | 2.599 | không có tuỳ chọn này |
 | Đọc xlsx (1 tab, 23 dòng) | 3.080 | 2.261 | khoảng 2.829 |
@@ -247,7 +248,7 @@ của Claude.
 | Client | Claude Code, Codex, Copilot, Cursor, Kiro, client MCP bất kỳ | Claude |
 | Script và CI | Có (CLI, thư viện, biến môi trường) | Không |
 | Ghi | Ô và dòng trong Sheets, tạo folder/Doc/Sheet, đổi tên, chuyển file | Tạo, sửa, copy, share, xoá file |
-| Schema tool (tiktoken) | 561 token khi có quyền ghi | 3.610 token |
+| Schema tool (tiktoken) | 557 token khi có quyền ghi | 3.610 token |
 | Chạy ở đâu | Trên máy bạn, gọi thẳng Google API | Qua hạ tầng của Claude |
 
 Chọn gdrive-cli khi bạn muốn giới hạn chính xác những gì AI đọc và ghi được, khi dùng client khác
