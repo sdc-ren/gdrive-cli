@@ -25,7 +25,6 @@ import { loadFolders } from '../src/folders.mjs';
 import { KIND as FORMAT_KIND, MIME } from '../src/formats.mjs';
 import { runInit } from '../src/init.mjs';
 import { assertSafeCellValue } from '../src/sheet-guard.mjs';
-import { renderFolders } from '../src/render.mjs';
 import { batchUpdateValues, getMetadata, pickSheet } from '../src/sheets.mjs';
 import { runStatus } from '../src/status.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
@@ -258,7 +257,7 @@ async function cmdLs(flags) {
   if (listTarget.roots) {
     // Có danh sách folder mà không chỉ đích: in các folder được phép, không liệt kê cả Drive.
     if (flags.json) json({ folders: listTarget.roots });
-    else out(renderFolders(listTarget.roots));
+    else out([`# ${listTarget.roots.length} folders`, ...listTarget.roots.map((f) => `d ${f.name} (${f.access}) ${f.id}`)].join('\n'));
     return true;
   }
   const { folderId } = listTarget;
