@@ -9,7 +9,7 @@ MCP server, CLI và thư viện Node để trợ lý AI đọc và ghi Google Sh
 Office trên Google Drive bằng một service account riêng. AI chỉ thấy những gì bạn share cho
 service account, với đúng quyền bạn cấp.
 
-Dùng được với Claude Code, Codex, GitHub Copilot (VS Code và CLI), Cursor, Kiro và mọi client MCP
+Dùng được với Claude Code, Claude Desktop, Codex, GitHub Copilot (VS Code và CLI), Cursor, Kiro và mọi client MCP
 chạy qua stdio.
 
 ## Mục lục
@@ -53,7 +53,7 @@ chạy qua stdio.
 ```bash
 npm install -g github:sdc-ren/gdrive-cli
 gdrive init --sa-json ~/keys/service-account.json   # in ra email của service account
-gdrive install --client cursor                      # hoặc codex, copilot, copilot-cli, kiro
+gdrive install --client claude                      # hoặc claude-desktop, codex, copilot, cursor, kiro
 ```
 
 1. Share file hoặc folder cần dùng cho email mà `gdrive init` in ra.
@@ -64,9 +64,10 @@ Chưa có file key? Xem [Thiết lập service account](#thiết-lập-service-a
 
 ## Cài đặt
 
-Cần Node.js 18.17 trở lên.
+Cần Node.js 18.17 trở lên. Cách cài chung cho mọi client gồm ba bước: cài CLI, nạp key, đăng ký
+với client. Riêng Claude Code còn có thể [cài dạng plugin](#claude-code-dạng-plugin).
 
-### CLI toàn cục (npm)
+### 1. Cài CLI toàn cục
 
 ```bash
 npm install -g github:sdc-ren/gdrive-cli
@@ -76,13 +77,61 @@ gdrive --version
 Cài một phiên bản cố định theo tag trong trang [Releases](https://github.com/sdc-ren/gdrive-cli/releases):
 
 ```bash
-npm install -g github:sdc-ren/gdrive-cli#v0.5.0
+npm install -g github:sdc-ren/gdrive-cli#v0.5.1
 ```
 
 Gói cài từ GitHub vì tên `gdrive-cli` trên npm thuộc một dự án khác. Cập nhật bằng cách chạy lại
 lệnh cài.
 
-### Claude Code (plugin)
+### 2. Nạp key của service account
+
+```bash
+gdrive init --sa-json ~/keys/service-account.json
+```
+
+Lệnh kiểm tra key, ghi cấu hình (chmod 600) và in email service account. Chưa có key thì xem
+[Thiết lập service account](#thiết-lập-service-account).
+
+### 3. Đăng ký với client AI
+
+```bash
+gdrive install --client claude              # một client
+gdrive install --client claude,cursor       # nhiều client
+gdrive install --client claude --project    # ghi vào repo đang đứng
+gdrive install --client claude --skill      # cài thêm skill hướng dẫn dùng tool
+```
+
+| `--client` | Cấp user (mặc định) | `--project` |
+|---|---|---|
+| `claude` (Claude Code) | Chạy `claude mcp add --scope user` | `.mcp.json` |
+| `claude-desktop` | `claude_desktop_config.json` trong thư mục dữ liệu của Claude Desktop | không hỗ trợ |
+| `codex` | `~/.codex/config.toml` | `.codex/config.toml` (Codex chỉ đọc khi project đã trust) |
+| `copilot` (VS Code) | `mcp.json` trong thư mục User của VS Code | `.vscode/mcp.json` |
+| `copilot-cli` | `~/.copilot/mcp-config.json` | không hỗ trợ |
+| `cursor` | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
+| `kiro` | `~/.kiro/settings/mcp.json` | `.kiro/settings/mcp.json` |
+
+Thư mục dữ liệu của Claude Desktop là `~/Library/Application Support/Claude` trên macOS và
+`%APPDATA%\Claude` trên Windows. Khởi động lại client sau khi đăng ký để nạp các tool `drive_*`.
+
+Cách `install` sửa cấu hình của client:
+- Chỉ thêm hoặc thay khoá `gdrive`; các server khác giữ nguyên. Chạy lại nhiều lần cho ra cùng
+  một kết quả.
+- Không ghi credential vào cấu hình của client.
+- Với Claude Code ở cấp user, `install` gọi lệnh `claude mcp add` thay vì sửa `~/.claude.json`.
+  Máy không có lệnh `claude` thì `install` in ra lệnh để bạn tự chạy.
+- Ở cấp user, cấu hình chứa đường dẫn tuyệt đối tới `node` và server, vì app mở từ Dock hay Start
+  menu thường không có PATH của nvm hoặc Homebrew. Đổi phiên bản Node thì chạy lại `install`.
+- `--project` ghi lệnh `gdrive mcp`, không chứa đường dẫn trên máy, nên file commit được. Ai dùng
+  repo cũng cần cài CLI toàn cục.
+- `--skill` chép skill vào `~/.claude/skills` (Claude Code), `~/.kiro/skills` (Kiro) hoặc
+  `~/.agents/skills` (Codex, Copilot, Cursor). Claude Desktop không dùng skill.
+- File có comment (JSONC) hoặc TOML khó sửa an toàn thì `install` để nguyên và in đoạn cấu hình
+  để bạn tự dán.
+
+### Claude Code dạng plugin
+
+Cách thay thế cho ba bước trên, không cần npm:
 
 ```
 /plugin marketplace add sdc-ren/gdrive-cli
@@ -90,40 +139,8 @@ lệnh cài.
 ```
 
 Sau đó chạy `/gdrive-setup`. Skill hỏi đường dẫn file key, ghi cấu hình rồi in email service
-account. Private key được đọc từ file, không đi qua hội thoại.
-
-Plugin có sẵn MCP server và CLI riêng, không cần cài npm. Nếu đã cài cả CLI toàn cục thì hai bên
-dùng chung một file cấu hình.
-
-### Codex, GitHub Copilot, Cursor, Kiro
-
-Cài CLI toàn cục và chạy `gdrive init` trước, sau đó:
-
-```bash
-gdrive install --client cursor              # một client
-gdrive install --client cursor,codex        # nhiều client
-gdrive install --client cursor --project    # ghi vào repo đang đứng
-gdrive install --client cursor --skill      # cài thêm Agent Skill hướng dẫn dùng tool
-```
-
-| `--client` | Cấp user (mặc định) | `--project` |
-|---|---|---|
-| `codex` | `~/.codex/config.toml` | `.codex/config.toml` (Codex chỉ đọc khi project đã trust) |
-| `copilot` (VS Code) | `mcp.json` trong thư mục User của VS Code | `.vscode/mcp.json` |
-| `copilot-cli` | `~/.copilot/mcp-config.json` | không hỗ trợ |
-| `cursor` | `~/.cursor/mcp.json` | `.cursor/mcp.json` |
-| `kiro` | `~/.kiro/settings/mcp.json` | `.kiro/settings/mcp.json` |
-
-Cách `install` sửa file cấu hình của client:
-- Chỉ thêm hoặc thay khoá `gdrive`; các server khác giữ nguyên. Chạy lại nhiều lần cho ra cùng
-  một kết quả.
-- Không ghi credential vào file của client.
-- Ở cấp user, ghi đường dẫn tuyệt đối tới `node` và server, vì app mở từ Dock hay Start menu
-  thường không có PATH của nvm hoặc Homebrew. Đổi phiên bản Node thì chạy lại `install`.
-- `--project` ghi lệnh `gdrive mcp`, không chứa đường dẫn trên máy, nên file commit được. Ai dùng
-  repo cũng cần cài CLI toàn cục.
-- File có comment (JSONC) hoặc TOML khó sửa an toàn thì `install` để nguyên và in đoạn cấu hình
-  để bạn tự dán.
+account. Private key được đọc từ file, không đi qua hội thoại. Nếu máy có cả CLI toàn cục thì hai
+bên dùng chung một file cấu hình. Dùng plugin thì không cần `gdrive install --client claude`.
 
 ### Client MCP khác
 
@@ -140,7 +157,7 @@ Trỏ client vào lệnh `gdrive mcp` (MCP qua stdio). Ví dụ với định d�
 ### Gỡ cài đặt
 
 ```bash
-gdrive uninstall --client cursor     # gỡ đăng ký khỏi từng client (thêm --project nếu cần)
+gdrive uninstall --client claude     # gỡ đăng ký khỏi từng client (thêm --project nếu cần)
 gdrive uninstall --purge             # xoá file cấu hình chứa private key
 npm uninstall -g gdrive-cli
 ```
@@ -379,7 +396,7 @@ Số đo đầy đủ và cách đo: [docs/benchmarks.md](docs/benchmarks.md).
 | Danh tính | Service account riêng | Tài khoản Google của bạn (OAuth) |
 | AI thấy gì | Chỉ những gì đã share cho service account | Mọi thứ tài khoản bạn thấy |
 | Cài đặt | GCP project, file key, share | Bấm kết nối, đăng nhập |
-| Client | Claude Code, Codex, Copilot, Cursor, Kiro, client MCP bất kỳ | Các sản phẩm của Claude |
+| Client | Claude Code, Claude Desktop, Codex, Copilot, Cursor, Kiro, client MCP bất kỳ | Các sản phẩm của Claude |
 | Script và CI | Có (CLI, thư viện, biến môi trường) | Không |
 | Ghi | Ô và dòng trong Sheets, tạo folder/Doc/Sheet, đổi tên, di chuyển | Tạo, sửa, copy, share, xoá file |
 | Schema tool | 557 token | 3.610 token |

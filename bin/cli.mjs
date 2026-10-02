@@ -82,7 +82,7 @@ const HELP = `gdrive — Google Drive / Sheets / Docs / Slides bằng service ac
   gdrive status
   gdrive uninstall [--purge]
 
-  gdrive install --client <codex|copilot|copilot-cli|cursor|kiro>[,…] [--project] [--skill]
+  gdrive install --client <claude|claude-desktop|codex|copilot|copilot-cli|cursor|kiro>[,…] [--project] [--skill]
         Đăng ký MCP server vào client AI (mặc định cấp user; --project ghi vào repo đang
         đứng). --skill cài kèm Agent Skill hướng dẫn dùng tool.
   gdrive uninstall --client <tên>[,…] [--project]

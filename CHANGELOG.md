@@ -6,6 +6,23 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
 
 ## [Chưa phát hành]
 
+## [0.5.1] - 2026-10-02
+
+### Thêm
+
+- `gdrive install --client claude` đăng ký MCP server cho Claude Code khi đã cài CLI toàn cục.
+  Cấp user gọi `claude mcp add --scope user` (không sửa thẳng `~/.claude.json`); máy không có lệnh
+  `claude` thì in lệnh để tự chạy. `--project` ghi `.mcp.json` của repo, `--skill` cài vào
+  `~/.claude/skills`.
+- `gdrive install --client claude-desktop` ghi `claude_desktop_config.json` của Claude Desktop
+  (macOS, Windows).
+- `gdrive uninstall --client` và `gdrive status` nhận hai client mới.
+
+### Tài liệu
+
+- README: phần cài đặt thành ba bước chung (cài CLI, `gdrive init`, `gdrive install --client`),
+  plugin Claude Code là cách thay thế.
+
 ## [0.5.0] - 2026-10-02
 
 ### Thay đổi phá tương thích
@@ -139,7 +156,8 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
   Slides và `.xlsx`, `.docx`, `.pptx` trên Drive.
 - CLI `gdrive` và wizard cài đặt qua npx, skill cho Claude Code.
 
-[Chưa phát hành]: https://github.com/sdc-ren/gdrive-cli/compare/v0.5.0...develop
+[Chưa phát hành]: https://github.com/sdc-ren/gdrive-cli/compare/v0.5.1...develop
+[0.5.1]: https://github.com/sdc-ren/gdrive-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.2.0...v0.3.0

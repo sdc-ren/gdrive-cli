@@ -1,7 +1,7 @@
 ---
 name: gdrive-setup
 description: Cấu hình credential cho plugin gdrive lần đầu, hoặc đổi service account / bật quyền ghi. Dùng khi tool drive_* báo "Không tìm thấy credential", "chưa share" hoặc "Chỉ đọc", khi người dùng nói "cài đặt gdrive", "cấu hình Google Drive", "đổi service account", "bật quyền ghi sheet", hoặc khi cần kiểm tra vì sao gdrive không truy cập được file.
-version: 0.5.0
+version: 0.5.1
 ---
 
 # Cấu hình gdrive

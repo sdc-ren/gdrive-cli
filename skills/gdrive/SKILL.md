@@ -1,7 +1,7 @@
 ---
 name: gdrive
 description: Dùng khi làm việc với Google Drive — người dùng dán link docs.google.com hoặc drive.google.com, hoặc nói "đọc sheet này", "lấy dữ liệu từ Google Sheet", "đọc file docx/xlsx/slide trên Drive", "ghi kết quả vào sheet", "tạo doc/sheet trong folder", "tìm file trong folder". Kèm cách xử lý lỗi 404/403 chưa share, "Chỉ đọc", và file Office đời cũ.
-version: 0.5.0
+version: 0.5.1
 ---
 
 # Google Drive qua service account, quyền theo share

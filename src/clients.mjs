@@ -1,5 +1,9 @@
-// Đăng ký MCP server gdrive vào client AI khác Claude Code: Codex, Copilot (VS Code + CLI),
-// Cursor, Kiro. Plugin Claude Code tự lo phần này nên không có ở đây.
+// Đăng ký MCP server gdrive vào client AI: Claude Code, Claude Desktop, Codex, Copilot (VS Code
+// + CLI), Cursor, Kiro. Plugin Claude Code là cách cài khác, không cần bước này.
+//
+// Claude Code cấp user lưu MCP trong ~/.claude.json, file mà Claude Code đang chạy cũng ghi
+// vào. Vì vậy ta không sửa file đó mà gọi `claude mcp add/remove`; chỉ ĐỌC nó để biết đã đăng ký
+// chưa. Không có lệnh `claude` thì in lệnh để người dùng tự chạy.
 //
 // Nguyên tắc: chỉ MERGE đúng khoá `gdrive`, không bao giờ ghi đè cả file của người dùng;
 // file không đọc chắc được (JSONC, TOML mơ hồ) thì KHÔNG đụng vào, in đoạn cấu hình để tự
@@ -15,6 +19,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,11 +35,40 @@ function vscodeUserDir(home, env, platform) {
   return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'Code', 'User');
 }
 
+function claudeDesktopDir(home, env, platform) {
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'Claude');
+  if (platform === 'win32') return join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'Claude');
+  // Linux không có bản chính thức; các bản build cộng đồng đọc ở đây.
+  const xdg = env.XDG_CONFIG_HOME;
+  return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'Claude');
+}
+
 /**
  * Mỗi client: file MCP cấp user/project, định dạng, khoá chứa danh sách server, trường
  * bắt buộc thêm vào entry, và thư mục Agent Skill (chuẩn SKILL.md).
  */
 export const CLIENTS = {
+  claude: {
+    label: 'Claude Code',
+    format: 'json',
+    key: 'mcpServers',
+    // Chỉ đọc; ghi qua `claude mcp add --scope user` (xem đầu file).
+    user: ({ home }) => join(home, '.claude.json'),
+    userViaCli: true,
+    project: ({ cwd }) => join(cwd, '.mcp.json'),
+    skill: { user: ({ home }) => join(home, '.claude', 'skills'), project: ({ cwd }) => join(cwd, '.claude', 'skills') },
+    notes: {
+      project: 'Claude Code hỏi xác nhận trước khi dùng server trong .mcp.json của project.',
+    },
+  },
+  'claude-desktop': {
+    label: 'Claude Desktop',
+    format: 'json',
+    key: 'mcpServers',
+    user: ({ home, env, platform }) => join(claudeDesktopDir(home, env, platform), 'claude_desktop_config.json'),
+    project: null,
+    skill: null,
+  },
   codex: {
     label: 'Codex',
     format: 'toml',
@@ -319,7 +353,8 @@ function targetFile(id, { project, cwd, home, env, platform }) {
 const SKILL_MARKER = /^---\s*\nname:\s*gdrive\s*\n/;
 
 function skillFile(id, { project, cwd, home }) {
-  const locate = CLIENTS[id].skill[project ? 'project' : 'user'];
+  const locate = CLIENTS[id].skill?.[project ? 'project' : 'user'];
+  if (!locate) return null;
   return join(locate({ cwd, home }), 'gdrive', 'SKILL.md');
 }
 
@@ -329,6 +364,7 @@ function skillFile(id, { project, cwd, home }) {
  */
 function installSkill(id, ctx) {
   const file = skillFile(id, ctx);
+  if (!file) return { ok: false, file: null, reason: `${CLIENTS[id].label} không dùng Agent Skill` };
   const current = readText(file);
   if (current != null && !SKILL_MARKER.test(current.replace(/\r\n/g, '\n'))) {
     return { ok: false, file, reason: 'đã có skill gdrive khác ở đó — không ghi đè' };
@@ -342,6 +378,7 @@ function installSkill(id, ctx) {
 
 function uninstallSkill(id, ctx) {
   const file = skillFile(id, ctx);
+  if (!file) return { ok: true, changed: false, file: null };
   const current = readText(file);
   if (current == null) return { ok: true, changed: false, file };
   if (!SKILL_MARKER.test(current.replace(/\r\n/g, '\n'))) {
@@ -350,6 +387,51 @@ function uninstallSkill(id, ctx) {
   rmSync(file);
   if (readdirSync(dirname(file)).length === 0) rmdirSync(dirname(file));
   return { ok: true, changed: true, file };
+}
+
+// ── Claude Code cấp user: qua lệnh `claude mcp` ──────────────────────────────
+
+/** Windows cần shell vì `claude` là file .cmd; khi đó tự bọc nháy từng tham số. */
+function defaultRunCommand(cmd, args, platform) {
+  const win = platform === 'win32';
+  const finalArgs = win ? args.map((a) => `"${String(a).replace(/"/g, '\\"')}"`) : args;
+  return spawnSync(cmd, finalArgs, { encoding: 'utf8', shell: win });
+}
+
+const shellLine = (args) => ['claude', ...args].map((a) => (/[\s"']/.test(a) ? `"${a}"` : a)).join(' ');
+
+function runClaude(ctx, args) {
+  const run = ctx.runCommand ?? ((cmd, a) => defaultRunCommand(cmd, a, ctx.platform));
+  const res = run('claude', args);
+  if (!res?.error && res?.status === 0) return { ok: true };
+  const reason = res?.error?.code === 'ENOENT'
+    ? 'không tìm thấy lệnh claude'
+    : `claude ${args.slice(0, 2).join(' ')} lỗi: ${String(res?.stderr || res?.error?.message || '').trim().split('\n')[0]}`;
+  return { ok: false, reason, snippet: shellLine(args), snippetKind: 'command' };
+}
+
+function claudeUserEntry(file) {
+  return readJsonServer(readText(file), 'mcpServers', SERVER_NAME);
+}
+
+function installClaudeUser(ctx, file, entry) {
+  const current = claudeUserEntry(file);
+  if (current && current.command === entry.command && same(current.args ?? [], entry.args)) {
+    return { ok: true, changed: false };
+  }
+  const scope = ['--scope', 'user', SERVER_NAME];
+  if (current) {
+    const removed = runClaude(ctx, ['mcp', 'remove', ...scope]);
+    if (!removed.ok) return removed;
+  }
+  const added = runClaude(ctx, ['mcp', 'add', ...scope, '--', entry.command, ...entry.args]);
+  return added.ok ? { ok: true, changed: true } : added;
+}
+
+function uninstallClaudeUser(ctx, file) {
+  if (!claudeUserEntry(file)) return { ok: true, changed: false };
+  const removed = runClaude(ctx, ['mcp', 'remove', '--scope', 'user', SERVER_NAME]);
+  return removed.ok ? { ok: true, changed: true } : removed;
 }
 
 function withDefaults(opts) {
@@ -373,6 +455,11 @@ export function installClient(id, opts = {}) {
   const file = targetFile(id, ctx);
   const client = CLIENTS[id];
   const entry = buildEntry(id, { project: ctx.project, launch: ctx.project ? null : ctx.launch ?? resolveLaunch() });
+  if (client.userViaCli && !ctx.project) {
+    const res = installClaudeUser(ctx, file, entry);
+    const out = { id, label: client.label, file, entry, ...res };
+    return res.ok ? { ...out, skill: ctx.skill ? installSkill(id, ctx) : null } : out;
+  }
   const text = readText(file);
   const res = client.format === 'toml'
     ? upsertTomlServer(text, SERVER_NAME, entry)
@@ -390,12 +477,13 @@ export function uninstallClient(id, opts = {}) {
   const ctx = withDefaults(opts);
   const file = targetFile(id, ctx);
   const client = CLIENTS[id];
+  const out = { id, label: client.label, file };
+  const skill = uninstallSkill(id, ctx);
+  if (client.userViaCli && !ctx.project) return { ...out, ...uninstallClaudeUser(ctx, file), skill };
   const text = readText(file);
   const res = client.format === 'toml'
     ? removeTomlServer(text, SERVER_NAME)
     : removeJsonServer(text, client.key, SERVER_NAME);
-  const out = { id, label: client.label, file };
-  const skill = uninstallSkill(id, ctx);
   if (!res.ok) return { ...out, ok: false, reason: res.reason, skill };
   if (res.changed) writeFileSync(file, res.text);
   return { ...out, ok: true, changed: res.changed, skill };
@@ -454,6 +542,12 @@ export function runInstall(flags = {}, { log = console.log, hasConfig = true, ..
   let allOk = true;
   for (const id of ids) {
     const res = installClient(id, { ...opts, project, skill: Boolean(flags.skill), launch });
+    if (!res.ok && res.snippetKind === 'command') {
+      allOk = false;
+      log(`⚠️  ${res.label}: chưa đăng ký — ${res.reason}. Tự chạy:\n`);
+      log(`     ${res.snippet}\n`);
+      continue;
+    }
     if (!res.ok) {
       allOk = false;
       log(`⚠️  ${res.label}: KHÔNG sửa ${res.file} — ${res.reason}.`);
@@ -482,7 +576,10 @@ export function runClientUninstall(flags = {}, { log = console.log, ...opts } = 
   let allOk = true;
   for (const id of ids) {
     const res = uninstallClient(id, { ...opts, project });
-    if (!res.ok) {
+    if (!res.ok && res.snippetKind === 'command') {
+      allOk = false;
+      log(`⚠️  ${res.label}: chưa gỡ — ${res.reason}. Tự chạy: ${res.snippet}`);
+    } else if (!res.ok) {
       allOk = false;
       log(`⚠️  ${res.label}: KHÔNG sửa ${res.file} — ${res.reason}. Gỡ tay khoá "gdrive".`);
     } else {
