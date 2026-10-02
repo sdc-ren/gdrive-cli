@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 
+import { MODES, modeFromConfig } from './access.mjs';
 import { about } from './drive.mjs';
 import { createClient } from './client.mjs';
 import { hasLegacyInstall, readConfig, writeConfig } from './config.mjs';
@@ -122,9 +123,13 @@ export async function runInit(
       return false;
     }
 
-    const mode = (flags.mode ?? existing?.mode) === 'readwrite' ? 'readwrite' : 'readonly';
-    // Giữ mọi khoá khác (folders…) của config cũ; chỉ thay phần credential và mode.
-    const { clientEmail: _e, privateKey: _k, projectId: _p, useAdc: _a, mode: _m, ...keep } = existing ?? {};
+    if (flags.mode !== undefined && !MODES.includes(flags.mode)) {
+      log(`❌ --mode phải là readonly hoặc readwrite, không phải "${flags.mode}".`);
+      return false;
+    }
+    const mode = modeFromConfig({ mode: flags.mode ?? existing?.mode });
+    // Giữ các khoá khác của config cũ; thay credential và mode. `folders` (v0.4.0) không còn dùng.
+    const { clientEmail: _e, privateKey: _k, projectId: _p, useAdc: _a, mode: _m, folders: _f, ...keep } = existing ?? {};
     const cfgFile = writeConfig({ ...keep, mode, useAdc, ...(credentials ?? {}) }, home, env);
     if (process.platform === 'win32') {
       log(`✅ Đã ghi cấu hình → ${cfgFile}`);
@@ -133,9 +138,7 @@ export async function runInit(
     } else {
       log(`✅ Đã ghi cấu hình → ${cfgFile} (chmod 600)`);
     }
-    log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi client AI' : ''}`);
-    const hasFolders = (Array.isArray(keep.folders) && keep.folders.length > 0) || Boolean(env.GDRIVE_FOLDERS);
-    if (!hasFolders) log('   Chưa có folder nào được phép — chạy: gdrive folder add <url-folder> [--access write]');
+    log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi client AI' : ' — ghi được ở nơi service account là Editor'}`);
 
     if (!flags['no-test']) {
       log('\n🔎 Kiểm tra kết nối...');
