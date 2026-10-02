@@ -118,6 +118,16 @@ test('init: chạy lại thì giữ credential cũ, đổi được mode', async
   });
 });
 
+test('init: --mode sai giá trị → từ chối, không ghi config', async () => {
+  await sandbox(async ({ home, keyFile, env }) => {
+    const logs = [];
+    const ok = await runInit({ ...baseFlags(keyFile), mode: 'ReadWrite' }, { home, log: (l) => logs.push(l), env });
+    assert.equal(ok, false);
+    assert.equal(readConfig(home, env), null);
+    assert.match(logs.join('\n'), /--mode phải là readonly hoặc readwrite/);
+  });
+});
+
 test('init: mặc định readwrite; xoá khoá folders cũ, giữ khoá khác; readonly vẫn chọn được và được giữ', async () => {
   await sandbox(async ({ home, keyFile, env }) => {
     const logs = [];

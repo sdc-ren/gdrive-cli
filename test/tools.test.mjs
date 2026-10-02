@@ -81,6 +81,7 @@ test('drive_ls: link folder → một dòng mỗi mục, nhãn theo canEdit; pat
   const { byName } = tools();
   const ls = byName.get('drive_ls');
   assert.deepEqual(ls.inputSchema.required, ['path']);
+  await assert.rejects(ls.run({}), /Thiếu URL hoặc file id/);
   const out = await ls.run({ path: 'https://drive.google.com/drive/folders/rootAaaaa' });
   assert.equal(out.split('\n')[0], '# Test Run (write) · 2');
   assert.ok(out.includes('s TC_login sheet1aaaa 2026-09-30'));
@@ -224,4 +225,11 @@ test('drive_create: name rỗng/chỉ khoảng trắng bị từ chối trước
   await assert.rejects(byName.get('drive_create').run({ parent: 'rootAaaaa', name: '   ', kind: 'folder' }), /name không được rỗng/);
   await assert.rejects(byName.get('drive_create').run({ parent: 'rootAaaaa', name: '', kind: 'doc' }), /name không được rỗng/);
   assert.equal(client.calls.length, 0);
+});
+
+test('sheet_write: quyền trong cache cũ (Viewer) nhưng Drive đã nâng Editor → đọc lại 1 lần rồi ghi', async () => {
+  const onGet = (id, n, f) => (id === 'sheetBaaaa' && n === 1 ? f : { ...f, capabilities: RW });
+  const { byName, client } = tools('readwrite', fakeClient({ onGet }));
+  assert.equal(await byName.get('sheet_write').run({ target: 'sheetBaaaa', cells: { A1: 'x' } }), '✓ Sheet1: 1 cells, +0 rows');
+  assert.equal(client.gets.get('sheetBaaaa'), 2);
 });

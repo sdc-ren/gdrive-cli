@@ -17,10 +17,16 @@ export class AccessError extends Error {
   }
 }
 
-/** Không có config: readonly (chưa có credential). Có config mà thiếu `mode`: readwrite. */
+export const MODES = ['readonly', 'readwrite'];
+
+/**
+ * Không có config: readonly (chưa có credential). Có config mà thiếu `mode`: readwrite.
+ * Giá trị lạ (gõ sai, sai hoa thường) là readonly: đây là khoá an toàn, sai thì phải đóng.
+ */
 export function modeFromConfig(cfg) {
   if (!cfg) return 'readonly';
-  return cfg.mode === 'readonly' ? 'readonly' : 'readwrite';
+  if (cfg.mode === undefined) return 'readwrite';
+  return cfg.mode === 'readwrite' ? 'readwrite' : 'readonly';
 }
 
 export function createAccess({ meta, mode = 'readwrite' }) {
@@ -29,6 +35,22 @@ export function createAccess({ meta, mode = 'readwrite' }) {
   function deny(flag, m) {
     if (mode !== 'readwrite') throw new AccessError('READ_ONLY', `Đang ở chế độ readonly, không ghi. ${READONLY_HINT}`);
     if (flag !== true) throw new AccessError('READ_ONLY', `Chỉ đọc: service account chưa có quyền Editor với "${m?.name ?? '?'}".`);
+  }
+
+  // Quyền nằm trong metadata cache 5 phút: người dùng vừa nâng Viewer lên Editor thì lần đầu bị
+  // từ chối oan. Bị từ chối thì lấy lại metadata đúng một lần rồi xét lại, nên chỉ tốn thêm
+  // request khi bị từ chối.
+  async function ensure(flagOf, m) {
+    try {
+      deny(flagOf(m), m);
+      return m;
+    } catch (err) {
+      if (mode !== 'readwrite' || !m?.id) throw err;
+      meta.invalidate(m.id);
+      const fresh = await meta.file(m.id);
+      deny(flagOf(fresh), fresh);
+      return fresh;
+    }
   }
 
   return {
@@ -49,5 +71,8 @@ export function createAccess({ meta, mode = 'readwrite' }) {
     accessOf: (m) => (writable(m?.capabilities?.canEdit) ? 'write' : 'read'),
     assertCanEdit: (m) => deny(m?.capabilities?.canEdit, m),
     assertCanAddChildren: (m) => deny(m?.capabilities?.canAddChildren, m),
+    /** Như assert*, nhưng bị từ chối thì đọc lại metadata một lần. Trả metadata đã xét. */
+    ensureCanEdit: (m) => ensure((x) => x?.capabilities?.canEdit, m),
+    ensureCanAddChildren: (m) => ensure((x) => x?.capabilities?.canAddChildren, m),
   };
 }

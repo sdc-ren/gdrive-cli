@@ -38,6 +38,8 @@ test('modeFromConfig: không config → readonly; thiếu mode → readwrite; re
   assert.equal(modeFromConfig({ clientEmail: 'x' }), 'readwrite');
   assert.equal(modeFromConfig({ mode: 'readwrite' }), 'readwrite');
   assert.equal(modeFromConfig({ mode: 'readonly', folders: [{ id: 'a', name: 'b', access: 'write' }] }), 'readonly');
+  assert.equal(modeFromConfig({ mode: 'ReadOnly' }), 'readonly', 'giá trị lạ → readonly (khoá an toàn đóng khi sai)');
+  assert.equal(modeFromConfig({ mode: 'readonyl' }), 'readonly');
 });
 
 test('resolve: id và URL (giữ gid), mỗi lần đúng 1 lần đọc metadata', async () => {
@@ -72,7 +74,7 @@ test('accessOf / assertCanEdit / assertCanAddChildren theo capabilities; thiếu
   assert.equal(rw.accessOf(FILES.sheetROaaa), 'read');
   assert.equal(rw.accessOf(FILES.noCapsAaaa), 'read');
   assert.throws(() => rw.assertCanEdit(FILES.sheetROaaa), (e) => e.code === 'READ_ONLY' && e.message === 'Chỉ đọc: service account chưa có quyền Editor với "spec".');
-  assert.throws(() => rw.assertCanEdit(FILES.noCapsAaaa), (e) => e.code === 'READ_ONLY');
+  assert.throws(() => rw.assertCanEdit(FILES.noCapsAaaa), (e) => e.code === 'READ_ONLY' && /^Chỉ đọc: .*"cu"/.test(e.message));
   assert.throws(() => rw.assertCanAddChildren({ name: 'f', capabilities: RO }), (e) => e.code === 'READ_ONLY' && /"f"/.test(e.message));
 });
 
@@ -81,4 +83,29 @@ test('mode readonly: mọi thứ là read, assert ném READ_ONLY kèm gợi ý b
   assert.equal(ro.mode, 'readonly');
   assert.equal(ro.accessOf(FILES.sheetRWaaa), 'read');
   assert.throws(() => ro.assertCanEdit(FILES.sheetRWaaa), (e) => e.code === 'READ_ONLY' && /gdrive init --mode readwrite --yes/.test(e.message));
+});
+
+test('ensureCanEdit: bị từ chối thì đọc lại metadata đúng 1 lần (vừa nâng Viewer → Editor ghi được ngay)', async () => {
+  let n = 0;
+  const meta = {
+    invalidated: [],
+    invalidate(id) { this.invalidated.push(id); },
+    async file(id) { n++; return { id, name: 'KPI', capabilities: RW }; },
+  };
+  const access = createAccess({ meta });
+  const fresh = await access.ensureCanEdit({ id: 'sheetUpg1', name: 'KPI', capabilities: RO });
+  assert.equal(fresh.capabilities.canEdit, true);
+  assert.deepEqual(meta.invalidated, ['sheetUpg1']);
+  assert.equal(n, 1);
+  await access.ensureCanEdit(fresh);
+  assert.equal(n, 1, 'đã có quyền thì không gọi thêm');
+});
+
+test('ensureCanAddChildren: vẫn Viewer sau khi đọc lại → READ_ONLY; readonly không đọc lại', async () => {
+  let n = 0;
+  const meta = { invalidate() {}, async file(id) { n++; return { id, name: 'f', capabilities: RO }; } };
+  await assert.rejects(createAccess({ meta }).ensureCanAddChildren({ id: 'folderRO1', name: 'f', capabilities: RO }), (e) => e.code === 'READ_ONLY');
+  assert.equal(n, 1);
+  await assert.rejects(createAccess({ meta, mode: 'readonly' }).ensureCanEdit({ id: 'x', name: 'x', capabilities: RW }), (e) => e.code === 'READ_ONLY');
+  assert.equal(n, 1);
 });

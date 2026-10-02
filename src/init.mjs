@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 
+import { MODES, modeFromConfig } from './access.mjs';
 import { about } from './drive.mjs';
 import { createClient } from './client.mjs';
 import { hasLegacyInstall, readConfig, writeConfig } from './config.mjs';
@@ -122,7 +123,11 @@ export async function runInit(
       return false;
     }
 
-    const mode = (flags.mode ?? existing?.mode) === 'readonly' ? 'readonly' : 'readwrite';
+    if (flags.mode !== undefined && !MODES.includes(flags.mode)) {
+      log(`❌ --mode phải là readonly hoặc readwrite, không phải "${flags.mode}".`);
+      return false;
+    }
+    const mode = modeFromConfig({ mode: flags.mode ?? existing?.mode });
     // Giữ các khoá khác của config cũ; thay credential và mode. `folders` (v0.4.0) không còn dùng.
     const { clientEmail: _e, privateKey: _k, projectId: _p, useAdc: _a, mode: _m, folders: _f, ...keep } = existing ?? {};
     const cfgFile = writeConfig({ ...keep, mode, useAdc, ...(credentials ?? {}) }, home, env);

@@ -27,6 +27,9 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
   nên báo "Chỉ đọc" thay vì để Drive trả 403 thô.
 - Mở file không còn lần theo folder cha, nên bớt 1 đến vài request cho mỗi file mới.
 - `gdrive ls --query` dùng lại được.
+- Ghi bị từ chối vì quyền trong cache cũ thì đọc lại metadata một lần rồi xét lại: vừa nâng Viewer
+  lên Editor là ghi được ngay, không phải chờ cache 5 phút.
+- Giá trị `mode` lạ trong config được hiểu là `readonly`; `gdrive init --mode` sai giá trị bị từ chối.
 
 ## [0.4.0] - 2026-10-01
 

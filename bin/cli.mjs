@@ -31,7 +31,7 @@ import { buildA1, parseGoogleUrl } from '../src/url.mjs';
 
 const VALUE_FLAGS = new Set([
   'sheet', 'range', 'max-rows', 'max-chars', 'format', 'out', 'folder', 'name-contains',
-  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode', 'client', 'access',
+  'mime-type', 'query', 'max', 'set', 'share', 'name', 'sa-json', 'mode', 'client',
 ]);
 const REPEATABLE_FLAGS = new Set(['set']);
 
@@ -94,7 +94,7 @@ const HELP = `gdrive — Google Drive / Sheets / Docs / Slides bằng service ac
 Ghi chú:
   • Mọi lệnh nhận thẳng URL dán vào — tự bóc file id và gid.
   • --json in dữ liệu máy đọc; không có thì in bảng cho người đọc.
-  • Chế độ readonly (mặc định) từ chối write/put ngay tại chỗ.
+  • Config mode readonly (hoặc chưa có config) thì write/put bị từ chối ngay tại chỗ.
 `;
 
 // ── In ra ────────────────────────────────────────────────────────────────────

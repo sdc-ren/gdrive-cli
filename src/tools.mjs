@@ -137,7 +137,7 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
         for (const r of rows) for (const v of r) assertSafeCellValue(v);
         const { client, meta, access } = ctx();
         const { fileId, gid, meta: m } = await access.resolve(args.target);
-        access.assertCanEdit(m);
+        await access.ensureCanEdit(m);
         if (m.mimeType !== MIME.GOOGLE_SHEET) throw new Error(`"${m.name}" không phải Google Sheet — chỉ ghi được vào Google Sheet.`);
         const sm = await meta.sheet(fileId);
         const tab = pickSheet(sm.sheets, { sheet: args.sheet ?? null, gid });
@@ -174,7 +174,7 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
         const { client, meta, access } = ctx();
         const { fileId: parentId, meta: pm } = await access.resolve(args.parent);
         if (pm.mimeType !== MIME.FOLDER) throw new Error(`"${pm.name}" không phải folder.`);
-        access.assertCanAddChildren(pm);
+        await access.ensureCanAddChildren(pm);
         // Service account không có dung lượng My Drive: tạo Doc/Sheet chỉ được trên Shared Drive
         // (đo thật 2026-10-01: folder thì tạo được, Doc/Sheet bị 403 storageQuotaExceeded).
         if (args.kind !== 'folder' && !pm.driveId) {
@@ -216,12 +216,12 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
         if (!args.new_name && !args.to) throw new Error('Cần new_name hoặc to.');
         const { client, meta, access } = ctx();
         const { fileId, meta: m } = await access.resolve(args.target);
-        access.assertCanEdit(m);
+        await access.ensureCanEdit(m);
         let dest = null;
         if (args.to) {
           const r = await access.resolve(args.to);
           if (r.meta.mimeType !== MIME.FOLDER) throw new Error(`"${r.meta.name}" không phải folder.`);
-          access.assertCanAddChildren(r.meta);
+          await access.ensureCanAddChildren(r.meta);
           dest = r;
         }
         let removeParents = null;

@@ -265,6 +265,9 @@ AI tìm được mọi file của mình, cần share file, hoặc không muốn 
   nhắc lệnh này khi đang readonly.
 - `drive_ls` cần link folder. Gọi không tham số hay dùng địa chỉ dạng `alias/đường/dẫn` không còn
   chạy; prompt hay skill riêng nào dùng alias thì đổi sang link hoặc id.
+- Chạy chỉ bằng biến môi trường (`GOOGLE_SERVICE_ACCOUNT_JSON`…) mà không có file config thì MCP
+  server ở chế độ readonly. Trước đây `GDRIVE_FOLDERS=…:write` mở được quyền ghi; giờ cần một file
+  config có `mode: readwrite` (`gdrive init`). Với CLI thì thêm `--mode readwrite` cho lần chạy.
 
 ## Nâng cấp từ v0.3
 
