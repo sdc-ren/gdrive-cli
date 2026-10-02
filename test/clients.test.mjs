@@ -1,5 +1,6 @@
-// Đăng ký MCP cho Codex / Copilot / Cursor / Kiro — chạy trên HOME + cwd tạm, không đụng
-// config thật của máy.
+// Đăng ký MCP cho Claude Code / Claude Desktop / Codex / Copilot / Cursor / Kiro — chạy trên
+// HOME + cwd tạm, không đụng config thật của máy. Lệnh `claude` được thay bằng bản giả ghi
+// ~/.claude.json giống `claude mcp add/remove --scope user`.
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -26,6 +27,25 @@ import { runStatus } from '../src/status.mjs';
 
 const LAUNCH = { nodePath: '/usr/local/bin/node', serverPath: '/opt/gdrive-cli/server/index.mjs' };
 
+function fakeClaude(home, calls = []) {
+  const run = (cmd, args) => {
+    calls.push([cmd, ...args]);
+    const file = join(home, '.claude.json');
+    const cfg = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+    cfg.mcpServers ??= {};
+    if (args[1] === 'add') {
+      const i = args.indexOf('--');
+      cfg.mcpServers[args[4]] = { type: 'stdio', command: args[i + 1], args: args.slice(i + 2), env: {} };
+    }
+    if (args[1] === 'remove') delete cfg.mcpServers[args[4]];
+    writeFileSync(file, JSON.stringify(cfg));
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  run.calls = calls;
+  return run;
+}
+const noClaude = () => ({ error: Object.assign(new Error('spawnSync claude ENOENT'), { code: 'ENOENT' }) });
+
 async function sandbox(fn) {
   const root = mkdtempSync(join(tmpdir(), 'gdrive-clients-'));
   const home = join(root, 'home');
@@ -33,7 +53,7 @@ async function sandbox(fn) {
   mkdirSync(home, { recursive: true });
   mkdirSync(cwd, { recursive: true });
   // platform cố định 'linux' để đường dẫn VS Code đoán trước được trên mọi OS chạy test.
-  const ctx = { home, cwd, env: {}, platform: 'linux', launch: LAUNCH };
+  const ctx = { home, cwd, env: {}, platform: 'linux', launch: LAUNCH, runCommand: fakeClaude(home) };
   try {
     return await fn(ctx);
   } finally {
@@ -312,5 +332,112 @@ test('status: liệt kê client đã đăng ký và báo đỏ khi entry trỏ t
     assert.equal(healthy, false);
     assert.match(out, /Đã đăng ký cho: Cursor/);
     assert.match(out, /gdrive install --client cursor/);
+  });
+});
+
+// ── Claude Code và Claude Desktop ────────────────────────────────────────────
+
+test('claude cấp user: gọi `claude mcp add --scope user` với đường dẫn tuyệt đối; chạy lại không gọi nữa', async () => {
+  await sandbox(async (ctx) => {
+    write(join(ctx.home, '.claude.json'), JSON.stringify({ numStartups: 7, mcpServers: { other: { command: 'x' } } }));
+    const res = installClient('claude', ctx);
+    assert.equal(res.ok, true);
+    assert.equal(res.changed, true);
+    assert.deepEqual(ctx.runCommand.calls, [['claude', 'mcp', 'add', '--scope', 'user', 'gdrive', '--', LAUNCH.nodePath, LAUNCH.serverPath]]);
+    const cfg = readJson(join(ctx.home, '.claude.json'));
+    assert.equal(cfg.numStartups, 7);
+    assert.deepEqual(cfg.mcpServers.other, { command: 'x' });
+
+    assert.equal(installClient('claude', ctx).changed, false);
+    assert.equal(ctx.runCommand.calls.length, 1, 'đã đúng entry thì không gọi claude');
+  });
+});
+
+test('claude cấp user: entry cũ trỏ chỗ khác → remove rồi add', async () => {
+  await sandbox(async (ctx) => {
+    installClient('claude', { ...ctx, launch: { nodePath: '/old/node', serverPath: '/old/index.mjs' } });
+    installClient('claude', ctx);
+    assert.deepEqual(ctx.runCommand.calls.slice(1).map((c) => c[2]), ['remove', 'add']);
+    assert.deepEqual(readJson(join(ctx.home, '.claude.json')).mcpServers.gdrive.args, [LAUNCH.serverPath]);
+  });
+});
+
+test('claude cấp user, máy không có lệnh claude: không ghi file, in lệnh để tự chạy', async () => {
+  await sandbox(async (ctx) => {
+    const res = installClient('claude', { ...ctx, runCommand: noClaude });
+    assert.equal(res.ok, false);
+    assert.match(res.reason, /không tìm thấy lệnh claude/);
+    assert.equal(res.snippet, `claude mcp add --scope user gdrive -- ${LAUNCH.nodePath} ${LAUNCH.serverPath}`);
+    assert.equal(existsSync(join(ctx.home, '.claude.json')), false);
+
+    const logs = [];
+    assert.equal(runInstall({ client: 'claude' }, { ...ctx, runCommand: noClaude, log: (l) => logs.push(l) }), false);
+    assert.match(logs.join('\n'), /Tự chạy:[\s\S]*claude mcp add --scope user gdrive --/);
+  });
+});
+
+test('claude --project: ghi .mcp.json của repo (`gdrive mcp`), không gọi lệnh claude; --skill vào .claude/skills', async () => {
+  await sandbox(async (ctx) => {
+    const res = installClient('claude', { ...ctx, project: true, skill: true });
+    assert.equal(res.file, join(ctx.cwd, '.mcp.json'));
+    assert.deepEqual(readJson(res.file).mcpServers.gdrive, { command: 'gdrive', args: ['mcp'] });
+    assert.equal(res.skill.file, join(ctx.cwd, '.claude', 'skills', 'gdrive', 'SKILL.md'));
+    assert.equal(ctx.runCommand.calls.length, 0);
+
+    const user = installClient('claude', { ...ctx, skill: true });
+    assert.equal(user.skill.file, join(ctx.home, '.claude', 'skills', 'gdrive', 'SKILL.md'));
+  });
+});
+
+test('claude uninstall: gọi `claude mcp remove` chỉ khi đã đăng ký; không có lệnh claude thì in lệnh', async () => {
+  await sandbox(async (ctx) => {
+    assert.equal(uninstallClient('claude', ctx).changed, false);
+    assert.equal(ctx.runCommand.calls.length, 0);
+    installClient('claude', ctx);
+    const res = uninstallClient('claude', ctx);
+    assert.equal(res.changed, true);
+    assert.deepEqual(ctx.runCommand.calls.at(-1), ['claude', 'mcp', 'remove', '--scope', 'user', 'gdrive']);
+    assert.equal(readJson(join(ctx.home, '.claude.json')).mcpServers.gdrive, undefined);
+
+    installClient('claude', ctx);
+    const logs = [];
+    assert.equal(runClientUninstall({ client: 'claude' }, { ...ctx, runCommand: noClaude, log: (l) => logs.push(l) }), false);
+    assert.match(logs.join('\n'), /Tự chạy: claude mcp remove --scope user gdrive/);
+  });
+});
+
+test('claude-desktop: đúng file theo hệ điều hành, merge mcpServers; không có --project, không có skill', async () => {
+  await sandbox(async (ctx) => {
+    const { home } = ctx;
+    assert.equal(
+      CLIENTS['claude-desktop'].user({ ...ctx, platform: 'darwin' }),
+      join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
+    );
+    assert.equal(
+      CLIENTS['claude-desktop'].user({ ...ctx, platform: 'win32', env: { APPDATA: join(home, 'AppData', 'Roaming') } }),
+      join(home, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json'),
+    );
+    const file = userFile('claude-desktop', ctx);
+    assert.equal(file, join(home, '.config', 'Claude', 'claude_desktop_config.json'));
+    write(file, JSON.stringify({ globalShortcut: 'Ctrl+Space', mcpServers: { other: { command: 'x' } } }));
+    const res = installClient('claude-desktop', { ...ctx, skill: true });
+    assert.equal(res.ok, true);
+    const cfg = readJson(file);
+    assert.equal(cfg.globalShortcut, 'Ctrl+Space');
+    assert.deepEqual(cfg.mcpServers.gdrive, { command: LAUNCH.nodePath, args: [LAUNCH.serverPath] });
+    assert.equal(res.skill.ok, false);
+    assert.throws(() => installClient('claude-desktop', { ...ctx, project: true }), /không có config MCP cấp project/);
+    assert.equal(uninstallClient('claude-desktop', ctx).changed, true);
+    assert.deepEqual(readJson(file).mcpServers, { other: { command: 'x' } });
+  });
+});
+
+test('status: liệt kê Claude Code và Claude Desktop khi đã đăng ký', async () => {
+  await sandbox(async (ctx) => {
+    const launch = { nodePath: process.execPath, serverPath: process.execPath };
+    installClient('claude', { ...ctx, launch });
+    installClient('claude-desktop', { ...ctx, launch });
+    const ids = findRegistrations(ctx).map((r) => r.id).sort();
+    assert.deepEqual(ids, ['claude', 'claude-desktop']);
   });
 });

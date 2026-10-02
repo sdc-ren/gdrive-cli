@@ -65,7 +65,7 @@ GDRIVE_CONFIG_DIR=/tmp/gdrive-dev node bin/cli.mjs status
 | `src/access.mjs` | Phân giải link, kiểm quyền ghi, mode |
 | `src/config.mjs` | Tìm và ghi file config |
 | `src/credentials.mjs`, `src/auth.mjs` | Lấy credential, ký JWT, đổi access token |
-| `src/clients.mjs` | `gdrive install --client` cho Codex, Copilot, Cursor, Kiro |
+| `src/clients.mjs` | `gdrive install --client` cho Claude Code, Claude Desktop, Codex, Copilot, Cursor, Kiro |
 | `src/ooxml-*.mjs`, `src/zip.mjs` | Đọc `.xlsx`, `.docx`, `.pptx` |
 | `skills/` | Skill cho Claude Code và Agent Skill cho client khác |
 | `test/` | Test chạy bằng `node --test` |
