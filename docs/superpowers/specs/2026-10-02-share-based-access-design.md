@@ -52,7 +52,7 @@ Mỗi file đã có `capabilities` từ Drive. Thêm `capabilities(canEdit,canAd
 
 | Thao tác | Điều kiện kiểm phía client | Lỗi nếu thiếu |
 |---|---|---|
-| `sheet_write` | file đích `canEdit` | `✗ Chỉ đọc: service account là Viewer của "<tên>". Cần quyền Editor.` |
+| `sheet_write` | file đích `canEdit` | `✗ Chỉ đọc: service account chưa có quyền Editor với "<tên>".` |
 | `drive_create` | folder cha `canAddChildren` | cùng mẫu, với tên folder cha |
 | `drive_move` đổi tên | file `canEdit` | cùng mẫu |
 | `drive_move` chuyển folder | file `canEdit` và folder đích `canAddChildren` | cùng mẫu, nêu folder nào thiếu |
@@ -95,8 +95,8 @@ Gốc gồm:
 1. Shared Drive mà service account là thành viên (`drives.list`).
 2. File và folder share trực tiếp (`files.list q="sharedWithMe = true and trashed = false"`).
 
-Gọi hai request song song. Kết quả cache 5 phút trong tiến trình server. `drive_create` và
-`drive_move` xoá cache này.
+Gọi hai request song song, lấy tối đa 1000 gốc (`sharedWithMe` đi hết các trang tới mức đó). Danh
+sách cache 5 phút trong tiến trình server; `drive_create` và `drive_move` xoá cache này.
 
 ```
 # 6 shared · readwrite
@@ -110,8 +110,10 @@ s Báo cáo tuần (read) 1Def…
 - `(write)` khi `canEdit` (Shared Drive: `capabilities.canAddChildren`), ngược lại là `(read)`.
 - Ở `mode: readonly` mọi dòng là `(read)`, và tiêu đề có thêm `· readonly — bật ghi: gdrive init
   --mode readwrite --yes`.
-- `query` lọc theo tên ở cả hai nguồn. `limit` mặc định 30, tối đa 200, áp lên tổng số dòng.
-- `page` chỉ áp cho nguồn `sharedWithMe` (Shared Drive thường ít, lấy một trang 100).
+- `query` lọc theo tên (không phân biệt hoa thường) trên danh sách đã cache, không tốn request.
+- `limit` mặc định 30, tối đa 200. `page` là offset trong danh sách: dòng đầu có `next=<offset>`
+  khi còn, giống phân trang của `drive_read`.
+- Danh sách rỗng: tiêu đề là `# 0 shared · share folder cho email service account (xem gdrive status)`.
 
 ### `drive_ls { path }` và các tool khác: địa chỉ file
 
@@ -120,12 +122,14 @@ s Báo cáo tuần (read) 1Def…
 - Id trần.
 - `tên-gốc/đường/dẫn`, với `tên-gốc` khớp chính xác tên một dòng trong danh sách gốc.
 
-Cách phân giải:
-- Đầu vào chứa `:` thì coi là URL.
-- Không thì thử khớp đoạn đầu với tên gốc. Khớp đúng một gốc thì đi theo đường dẫn bằng
-  `findChild` như v0.4.0.
-- Khớp nhiều gốc trùng tên thì báo `✗ Có 2 mục tên "X": dùng id <id1> hoặc <id2>.`
-- Không khớp gốc nào thì coi là id.
+Cách phân giải, theo thứ tự (để đọc bằng id không phải tải danh sách gốc):
+1. Có `:` thì là URL.
+2. Không có `/` và trông như id (`[A-Za-z0-9_-]{8,}`) thì đọc như id. Drive trả 404 thì thử bước 3.
+   Bước 3 cũng không khớp thì báo lỗi 404 ban đầu (chưa share).
+3. Còn lại: đoạn trước `/` đầu tiên phải khớp chính xác tên một gốc. Khớp đúng một thì đi tiếp
+   theo đường dẫn bằng `findChild` như v0.4.0. Khớp nhiều gốc thì báo `✗ Có 2 mục tên "X": dùng id
+   <id1> hoặc <id2>.` Không khớp gốc nào thì báo `✗ Không có mục nào tên "X" được share. Gọi
+   drive_ls để xem.`
 
 Tên gốc có thể chứa khoảng trắng hoặc dấu tiếng Việt, và vẫn khớp bình thường.
 
