@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { renderDoc, renderError, renderFolders, renderLs, renderTable, typeCode } from '../src/render.mjs';
-import { ScopeError } from '../src/scope.mjs';
+import { renderDoc, renderError, renderLs, renderTable, typeCode } from '../src/render.mjs';
 import { viewTable } from '../src/table-view.mjs';
 
 test('typeCode theo mimeType, rơi về đuôi tên', () => {
@@ -15,11 +14,6 @@ test('typeCode theo mimeType, rơi về đuôi tên', () => {
   assert.equal(typeCode('application/octet-stream', 'a.pptx'), 'k');
   assert.equal(typeCode('text/csv'), 't');
   assert.equal(typeCode('image/png'), 'f');
-});
-
-test('renderFolders: một dòng mỗi folder, tên và quyền', () => {
-  const out = renderFolders([{ name: 'test-run', id: '1XyZ', access: 'write' }, { name: 'bao-cao', id: '1AbC', access: 'read' }]);
-  assert.equal(out, '# 2 folders\nd test-run (write) 1XyZ\nd bao-cao (read) 1AbC');
 });
 
 test('renderLs: dòng đầu có tên/quyền/số lượng và next, mỗi mục một dòng', () => {
@@ -52,8 +46,12 @@ test('renderDoc: tiêu đề và dòng truncated khi bị cắt', () => {
   assert.equal(cut.split('\n').at(-1), '# truncated at 3/8 chars');
 });
 
-test('renderError: ScopeError, 403 có email, lỗi thường', () => {
-  assert.equal(renderError(new ScopeError('OUT_OF_SCOPE', 'Ngoài phạm vi: x')), '✗ Ngoài phạm vi: x');
+test('renderError: AccessError in dòng đầu với ✗', () => {
+  const e = Object.assign(new Error('Chỉ đọc: service account chưa có quyền Editor với "KPI".\nchi tiết'), { name: 'AccessError', code: 'READ_ONLY' });
+  assert.equal(renderError(e), '✗ Chỉ đọc: service account chưa có quyền Editor với "KPI".');
+});
+
+test('renderError: 403 có email, lỗi thường', () => {
   const e403 = Object.assign(new Error('The caller does not have permission'), { code: 403 });
   assert.match(renderError(e403, { email: 'sa@p.iam.gserviceaccount.com' }), /^✗ 403: chưa share cho sa@p\.iam/);
   assert.equal(renderError(new Error('lạ')), '✗ lạ');
