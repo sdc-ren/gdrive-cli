@@ -10,8 +10,8 @@ Chỉ bản mới nhất trên nhánh `main` được sửa lỗi bảo mật.
 
 | Phiên bản | Hỗ trợ |
 |---|---|
-| 0.3.x | Có |
-| < 0.3 | Không |
+| 0.5.x | Có |
+| < 0.5 | Không |
 
 ## Cách báo lỗ hổng
 
@@ -37,14 +37,16 @@ Những thứ được tính là lỗ hổng:
 
 - Private key bị ghi ra ngoài file config (chmod 600), bị in ra log, stdout, kết quả tool, hoặc
   bị ghi vào config của client AI.
-- Chế độ readonly bị vượt qua: tool ghi xuất hiện hoặc gọi được khi chưa bật `readwrite`.
+- Ghi được khi config đang `mode: readonly`, hoặc tool ghi xuất hiện trong chế độ đó.
+- Tool đọc hoặc ghi được file không share cho service account.
 - Lệnh `install`, `uninstall` hoặc `init` ghi, sửa, xoá file nằm ngoài những file được mô tả
   trong README.
 - Dùng nhầm danh tính: chạy bằng ADC hoặc gcloud của người dùng khi họ chưa bật `--adc`.
 
 Ngoài phạm vi:
 
-- Người dùng tự share file cho service account hoặc tự bật `readwrite`.
+- Người dùng tự share file cho service account (kể cả tự share quyền Editor) hoặc tự bật
+  `readwrite`.
 - Lỗi của Google API, của client AI, hoặc của model.
 - Máy đã bị chiếm quyền, nơi kẻ tấn công đọc được file chmod 600 của bạn.
 

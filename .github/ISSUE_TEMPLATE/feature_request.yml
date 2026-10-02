@@ -25,4 +25,4 @@ body:
       label: Ràng buộc của dự án
       options:
         - label: Đề xuất không cần thêm dependency, hoặc tôi đã giải thích vì sao cần.
-        - label: Đề xuất giữ readonly là mặc định và không mở rộng quyền ngầm.
+        - label: Đề xuất không mở rộng quyền ngầm: quyền theo share trên Drive và khoá mode readonly vẫn giữ.

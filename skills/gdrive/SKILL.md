@@ -1,26 +1,28 @@
 ---
 name: gdrive
-description: Dùng khi làm việc với Google Drive — người dùng dán link docs.google.com hoặc drive.google.com, hoặc nói "đọc sheet này", "lấy dữ liệu từ Google Sheet", "đọc file docx/xlsx/slide trên Drive", "ghi kết quả vào sheet", "tạo doc/sheet trong folder", "tìm file trong folder". Kèm cách xử lý lỗi ngoài phạm vi folder, 403 chưa share, và file Office đời cũ.
-version: 0.4.0
+description: Dùng khi làm việc với Google Drive — người dùng dán link docs.google.com hoặc drive.google.com, hoặc nói "đọc sheet này", "lấy dữ liệu từ Google Sheet", "đọc file docx/xlsx/slide trên Drive", "ghi kết quả vào sheet", "tạo doc/sheet trong folder", "tìm file trong folder". Kèm cách xử lý lỗi 404/403 chưa share, "Chỉ đọc", và file Office đời cũ.
+version: 0.5.0
 ---
 
-# Google Drive qua service account, giới hạn theo folder
+# Google Drive qua service account, quyền theo share
 
-Plugin chỉ thấy các folder người dùng đã cho phép. Bắt đầu bằng `drive_ls` không tham số để biết
-tên gợi nhớ (alias) và quyền của từng folder.
+Người dùng gửi link, bạn truyền nguyên link đó (hoặc id) vào tool. Quyền do Drive quyết định theo
+cách file được share cho email service account: Editor thì đọc và ghi, Viewer thì chỉ đọc. Không có
+danh sách folder hay tên gợi nhớ nào cần tra trước.
 
 ## Chọn tool nào
 
 | Việc | Tool |
 |---|---|
-| Xem folder được phép, hoặc nội dung một folder | `drive_ls` |
+| Xem nội dung một folder (cần link folder) | `drive_ls` |
 | Đọc bất kỳ file nào: Sheet/xlsx ra TSV, Doc/Slide/docx/pptx ra markdown | `drive_read` |
 | Ghi ô hoặc thêm dòng vào Google Sheet | `sheet_write` |
 | Tạo folder, Google Doc (từ markdown), Google Sheet (từ CSV/TSV) | `drive_create` |
 | Đổi tên, chuyển file sang folder khác | `drive_move` |
 
-Mọi `target` nhận alias (`test-run`), đường dẫn `test-run/sub/file`, link Google dán nguyên, hoặc id.
-Không thấy `sheet_write`, `drive_create`, `drive_move` nghĩa là không folder nào có quyền `write`.
+Mọi `target`, `path`, `parent`, `to` nhận link Google dán nguyên hoặc id. `drive_ls` chỉ nhận link
+folder; người dùng đưa link file thì dùng `drive_read`.
+Không thấy `sheet_write`, `drive_create`, `drive_move` nghĩa là config đang `mode: readonly`.
 
 ## Đọc sheet lớn mà không đổ cả bảng vào context
 
@@ -33,11 +35,11 @@ Không thấy `sheet_write`, `drive_create`, `drive_move` nghĩa là không fold
 
 Lỗi luôn bắt đầu bằng `✗`.
 
-- **Ngoài phạm vi.** File không nằm trong folder được phép. Không có cách vòng: bảo người dùng
-  chạy `gdrive folder add <link-folder> [--access write]` rồi thử lại.
-- **Chỉ đọc.** Folder có quyền `read`. Người dùng bật ghi bằng `gdrive folder set <tên> --access write`.
-- **403 chưa share.** Service account có email riêng (hiện trong lỗi); người dùng phải Share
-  folder cho email đó, Viewer để đọc, Editor để ghi.
+- **404 hoặc 403 chưa share.** Service account có email riêng (hiện trong lỗi). Nhờ người dùng
+  share file hoặc folder cho email đó, Viewer để đọc, Editor để ghi, rồi thử lại. Không có cách vòng.
+- **Chỉ đọc.** Service account chưa có quyền Editor với mục đó. Nhờ người dùng đổi quyền share
+  sang Editor nếu muốn ghi.
+- **Chế độ readonly.** Config đang khoá ghi. Người dùng bật bằng `gdrive init --mode readwrite --yes`.
 - **Chưa chắc đã ghi.** Mất kết nối giữa lúc thêm dòng. Đọc lại cuối bảng bằng `drive_read`
   trước khi gọi lại `sheet_write`, kẻo ghi trùng.
 - **storageQuotaExceeded.** Service account không có dung lượng My Drive. `drive_create` chỉ

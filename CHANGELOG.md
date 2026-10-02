@@ -6,6 +6,31 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
 
 ## [Chưa phát hành]
 
+## [0.5.0] - 2026-10-02
+
+### Thay đổi phá tương thích
+
+- Bỏ danh sách folder. Chỉ cần gửi link. Quyền lấy theo share trên Drive:
+  - service account là Editor thì đọc và ghi;
+  - là Viewer thì chỉ đọc;
+  - chưa được share thì tool báo lại kèm email cần share.
+
+  Khoá `folders` và biến `GDRIVE_FOLDERS` bị bỏ qua.
+- Bỏ lệnh `gdrive folder`.
+- `drive_ls` cần link folder (tham số `path` bắt buộc). Bỏ địa chỉ dạng `alias/đường/dẫn`.
+- `gdrive init` mặc định `--mode readwrite`. Config cũ đang `readonly` giữ nguyên; bật ghi bằng
+  `gdrive init --mode readwrite --yes`.
+
+### Đổi
+
+- Tool ghi kiểm `capabilities.canEdit`/`canAddChildren` (có sẵn trong metadata) trước khi gọi API,
+  nên báo "Chỉ đọc" thay vì để Drive trả 403 thô.
+- Mở file không còn lần theo folder cha, nên bớt 1 đến vài request cho mỗi file mới.
+- `gdrive ls --query` dùng lại được.
+- Ghi bị từ chối vì quyền trong cache cũ thì đọc lại metadata một lần rồi xét lại: vừa nâng Viewer
+  lên Editor là ghi được ngay, không phải chờ cache 5 phút.
+- Giá trị `mode` lạ trong config được hiểu là `readonly`; `gdrive init --mode` sai giá trị bị từ chối.
+
 ## [0.4.0] - 2026-10-01
 
 ### Thay đổi phá tương thích
@@ -114,7 +139,8 @@ Mọi thay đổi người dùng thấy được đều ghi ở đây. Định d
   Slides và `.xlsx`, `.docx`, `.pptx` trên Drive.
 - CLI `gdrive` và wizard cài đặt qua npx, skill cho Claude Code.
 
-[Chưa phát hành]: https://github.com/sdc-ren/gdrive-cli/compare/v0.4.0...develop
+[Chưa phát hành]: https://github.com/sdc-ren/gdrive-cli/compare/v0.5.0...develop
+[0.5.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sdc-ren/gdrive-cli/compare/v0.1.1...v0.2.0

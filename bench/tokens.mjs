@@ -18,9 +18,8 @@ export const SCHEMA_TOKEN_LIMIT = 700;
 export const estimateTokens = (text) => Math.ceil(Buffer.byteLength(String(text), 'utf8') / 3.5);
 
 export function measure() {
-  const folders = [{ id: 'a', name: 'test-run', access: 'write' }];
   const schema = JSON.stringify(
-    buildTools({ getClient: () => null, folders }).map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
+    buildTools({ getClient: () => null, mode: 'readwrite' }).map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
   );
   const rows = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'sample-rows.json'), 'utf8'));
   const sheet200 = renderTable({ file: 'TC_login', tab: 'Sheet1', tabs: ['Sheet1', 'Data'], view: viewTable(rows, { limit: 200 }) });

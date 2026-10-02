@@ -118,28 +118,41 @@ test('init: chạy lại thì giữ credential cũ, đổi được mode', async
   });
 });
 
-test('init: chạy lại với key khác / --adc giữ nguyên folders, đổi đúng credential', async () => {
+test('init: --mode sai giá trị → từ chối, không ghi config', async () => {
+  await sandbox(async ({ home, keyFile, env }) => {
+    const logs = [];
+    const ok = await runInit({ ...baseFlags(keyFile), mode: 'ReadWrite' }, { home, log: (l) => logs.push(l), env });
+    assert.equal(ok, false);
+    assert.equal(readConfig(home, env), null);
+    assert.match(logs.join('\n'), /--mode phải là readonly hoặc readwrite/);
+  });
+});
+
+test('init: mặc định readwrite; xoá khoá folders cũ, giữ khoá khác; readonly vẫn chọn được và được giữ', async () => {
   await sandbox(async ({ home, keyFile, env }) => {
     const logs = [];
     const log = (l) => logs.push(l);
-    await runInit(baseFlags(keyFile), { home, log, env });
-    assert.match(logs.join('\n'), /Chưa có folder nào được phép — chạy: gdrive folder add <url-folder> \[--access write\]/);
-    const folders = [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }];
-    writeConfig({ ...readConfig(home, env), folders, extra: 'giữ' }, home, env);
+    const { mode: _ignored, ...noMode } = baseFlags(keyFile);
+    await runInit(noMode, { home, log, env });
+    assert.equal(readConfig(home, env).mode, 'readwrite');
+    assert.doesNotMatch(logs.join('\n'), /folder add/);
 
+    writeConfig({ ...readConfig(home, env), folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }], extra: 'giữ' }, home, env);
     const other = join(home, 'other.json');
     writeFileSync(other, KEY_JSON.replace('test-sa@', 'other-sa@'));
-    logs.length = 0;
     await runInit({ yes: true, 'sa-json': other, 'no-test': true }, { home, log, env });
     let cfg = readConfig(home, env);
-    assert.deepEqual(cfg.folders, folders);
+    assert.equal(cfg.folders, undefined, 'folders không còn dùng → xoá');
     assert.equal(cfg.extra, 'giữ');
     assert.equal(cfg.clientEmail, 'other-sa@proj-test.iam.gserviceaccount.com');
-    assert.doesNotMatch(logs.join('\n'), /Chưa có folder nào/);
+    assert.equal(cfg.mode, 'readwrite');
+
+    await runInit({ yes: true, mode: 'readonly', 'no-test': true }, { home, log, env });
+    assert.equal(readConfig(home, env).mode, 'readonly');
 
     await runInit({ yes: true, adc: true, 'no-test': true }, { home, log, env });
     cfg = readConfig(home, env);
-    assert.deepEqual(cfg.folders, folders);
+    assert.equal(cfg.mode, 'readonly', 'chạy lại không truyền --mode thì giữ mode cũ');
     assert.equal(cfg.useAdc, true);
     assert.equal(cfg.privateKey, undefined, 'chuyển sang ADC thì bỏ private key');
     assert.equal(cfg.clientEmail, undefined);

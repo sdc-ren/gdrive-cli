@@ -486,34 +486,14 @@ test('status không cảnh báo scope khi credential là service account', async
   });
 });
 
-test('status: liệt kê folder được phép; chưa có folder thì báo đỏ kèm lệnh folder add', async () => {
+test('status: không còn mục folder; khoá folders cũ được nhắc; readonly có gợi ý bật ghi', async () => {
   await sandbox(async ({ home }) => {
     writeLegacyConfig(home, { mode: 'readonly', folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }] });
     const logs = [];
     await runStatus({ home, env: {}, log: (line) => logs.push(line) });
     const output = logs.join('\n');
-    assert.match(output, /✅ Folder được phép: 1/);
-    assert.match(output, /^ {3}run {2}write {2}f1aaaaaaaa$/m);
-    assert.doesNotMatch(output, /GDRIVE_FOLDERS/);
-  });
-  await sandbox(async ({ home }) => {
-    writeLegacyConfig(home, { mode: 'readonly' });
-    const logs = [];
-    const healthy = await runStatus({ home, env: {}, log: (line) => logs.push(line) });
-    assert.equal(healthy, false);
-    assert.match(logs.join('\n'), /❌ Chưa có folder nào được phép\. Chạy: gdrive folder add <url-folder> \[--access write\]/);
-  });
-  await sandbox(async ({ home }) => {
-    writeLegacyConfig(home, { mode: 'readonly' });
-    const logs = [];
-    await runStatus({ home, env: { GDRIVE_FOLDERS: 'ci=f2aaaaaaaa:read' }, log: (line) => logs.push(line) });
-    assert.match(logs.join('\n'), /✅ Folder được phép: 1 \(lấy từ GDRIVE_FOLDERS\)/);
-  });
-  await sandbox(async ({ home }) => {
-    writeLegacyConfig(home, { mode: 'readonly', folders: [{ id: 'x', name: 'Có Dấu', access: 'read' }] });
-    const logs = [];
-    const healthy = await runStatus({ home, env: {}, log: (line) => logs.push(line) });
-    assert.equal(healthy, false);
-    assert.match(logs.join('\n'), /❌ .*Tên "Có Dấu" không hợp lệ/);
+    assert.doesNotMatch(output, /Folder được phép|Chưa có folder nào/);
+    assert.match(output, /Khoá "folders" không còn dùng từ v0\.5\.0, có thể xoá\./);
+    assert.match(output, /Chế độ: readonly — bật ghi: gdrive init --mode readwrite --yes/);
   });
 });

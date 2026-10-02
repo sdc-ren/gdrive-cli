@@ -35,11 +35,6 @@ function sizeLabel(size) {
   return `${(n / 1024 / 1024).toFixed(1)}MB`;
 }
 
-export function renderFolders(folders) {
-  const lines = folders.map((f) => `d ${f.name} (${f.access}) ${f.id}`);
-  return [`# ${folders.length} folders`, ...lines].join('\n');
-}
-
 export function renderLs({ title, access, items, total, next = null }) {
   const head = `# ${title} (${access}) · ${total}${next ? ` · next=${next}` : ''}`;
   const lines = items.map((f) => {
@@ -69,7 +64,7 @@ export function renderDoc({ file, kind, text, total, truncatedAt = null }) {
 export function renderError(err, { email = null } = {}) {
   const msg = String(err?.message ?? err).split('\n')[0];
   const code = Number(err?.code);
-  if (err?.name === 'ScopeError') return `✗ ${msg}`;
+  if (err?.name === 'AccessError') return `✗ ${msg}`;
   // Drive báo quota per-user bằng 403: phải xét trước nhánh "chưa share" không thì gợi ý sai.
   if (isRateLimited(err)) return '✗ Drive giới hạn tốc độ, thử lại sau';
   if (code === 403 || code === 404) {
