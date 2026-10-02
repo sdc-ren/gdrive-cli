@@ -2,14 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Service account được share gì thì AI dùng được nấy: Editor thì đọc/ghi, Viewer thì chỉ đọc. Không còn bước khai báo folder.
+**Goal:** Người dùng gửi link, AI mở thẳng link đó: service account là Editor thì đọc và ghi, là Viewer thì chỉ đọc, chưa được share thì báo lại. Không còn bước khai báo folder.
 
-**Architecture:** Thay lớp `scope.mjs` (danh sách folder + lần theo folder cha) bằng `access.mjs`. Lớp mới làm ba việc:
-- liệt kê "gốc" bằng `drives.list` và `files.list sharedWithMe`, cache 5 phút;
-- phân giải URL, id hoặc `tên-gốc/đường/dẫn`;
-- kiểm tra quyền ghi bằng `capabilities.canEdit`/`canAddChildren` lấy từ cache metadata.
+**Architecture:** `src/access.mjs` thay `src/scope.mjs` (bỏ danh sách folder và việc lần theo folder cha). Module mới làm ba việc:
+- phân giải URL hoặc id thành metadata; với shortcut thì lấy file đích;
+- đọc quyền từ `capabilities.canEdit`/`canAddChildren` có sẵn trong metadata đã cache;
+- áp khoá `mode` trong config làm công tắc an toàn chung. `readwrite` là mặc định mới của `init`.
 
-Khoá `mode` trong config thành công tắc an toàn chung. `readwrite` là mặc định mới của `init`. Lệnh `gdrive folder` và các module danh sách folder bị xoá.
+Lệnh `gdrive folder` và các module danh sách folder bị xoá.
 
 **Tech Stack:** Node.js >= 18.17, chỉ API có sẵn, test bằng `node --test`.
 
@@ -19,23 +19,27 @@ Khoá `mode` trong config thành công tắc an toàn chung. `readwrite` là m�
 
 - Node.js >= 18.17; không thêm dependency.
 - Stdout của MCP server chỉ chứa frame JSON-RPC.
-- Private key chỉ nằm trong đúng một file config, mode 600; không in ra log, kết quả tool, hay config của client.
-- Drive là nơi quyết định quyền cuối cùng; kiểm tra phía client chỉ để báo lỗi rõ và chặn trước khi gọi API ghi.
-- `mode: readonly` thì chỉ có `drive_ls` và `drive_read`, token xin scope `*.readonly`. `mode: readwrite`, hoặc có config mà thiếu `mode`, thì có đủ 5 tool. Không có config thì là `readonly`.
-- Giữ bộ chặn công thức `IMPORT*`/`IMAGE` (`src/sheet-guard.mjs`) không đổi.
-- Tổng schema tool dưới 700 token ước lượng (`ceil(bytes/3.5)`), CI báo đỏ nếu vượt.
-- Đường dẫn dùng `path.join`; test chạy được trên Windows (CRLF, `%APPDATA%`).
-- Test không gọi mạng, không đọc config thật (HOME tạm, `client.api` hoặc `fetch` giả).
+- Private key chỉ nằm trong đúng một file config, mode 600. Không in ra log, kết quả tool hay config của client.
+- Drive là nơi quyết định quyền cuối cùng. Kiểm tra phía client chỉ để báo lỗi rõ ràng và chặn trước khi gọi API ghi.
+- Không thêm request nào ngoài việc mở link. Quyền lấy từ metadata đã có.
+- `mode`:
+  - `readonly`: chỉ có `drive_ls` và `drive_read`, token xin scope `*.readonly`.
+  - `readwrite`, hoặc có config mà thiếu `mode`: đủ 5 tool.
+  - Không có config: `readonly`.
+- Giữ nguyên bộ chặn công thức `IMPORT*`/`IMAGE` (`src/sheet-guard.mjs`).
+- Tổng schema tool dưới 700 token ước lượng (`ceil(bytes/3.5)`). CI báo đỏ nếu vượt.
+- Đường dẫn dùng `path.join`. Test phải chạy được trên Windows (CRLF, `%APPDATA%`).
+- Test không gọi mạng, không đọc config thật (dùng HOME tạm, `client.api` hoặc `fetch` giả).
 - Commit theo Conventional Commits, kết thúc bằng `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-- Nhánh `feat/share-based-access` (đã tách từ `develop`); PR nhắm vào `develop`.
+- Nhánh `feat/share-based-access` (đã tách từ `develop`). PR nhắm vào `develop`.
 
 ## Review Focus
 
-1. **Tên gốc trông giống id** (vd. folder tên `Packflow_Test_Artifacts`, khớp `[A-Za-z0-9_-]{8,}`). Đọc như id gặp 404 thì phải rơi về khớp tên gốc, không báo "chưa share". Test ở Task 2.
-2. **Hai gốc trùng tên.** Phải báo `AMBIGUOUS` kèm cả hai id, không chọn bừa một cái. Test ở Task 2.
-3. **Metadata vào cache từ `findChild`** (đi theo `tên-gốc/đường/dẫn`) **phải có `capabilities.canEdit`**. Nếu thiếu, `sheet_write` từ chối nhầm file ghi được. Test ở Task 1 và Task 4.
-4. **Config v0.4.0 còn `mode: readonly` cùng `folders`.** Server phải chạy, bỏ qua `folders`, chỉ có 2 tool. `status` gợi ý cách bật ghi. Test ở Task 5 và Task 6.
-5. **Shortcut nằm trong folder ghi được, trỏ tới file chỉ đọc.** Quyền phải lấy theo file đích, nên `sheet_write` bị `READ_ONLY`. Test ở Task 4.
+1. **Shortcut nằm trong folder ghi được nhưng trỏ tới file chỉ đọc.** Quyền phải lấy theo file đích, nên `sheet_write` và `drive_move` báo `READ_ONLY` và không gọi API ghi. Test ở Task 2.
+2. **Config v0.4.0 còn `mode: readonly` + `folders`, kèm biến `GDRIVE_FOLDERS`.** Server phải chạy được, bỏ qua cả hai, chỉ có 2 tool. Test ở Task 3.
+3. **Metadata không có `capabilities`** (ví dụ ADC trả thiếu field). Phải coi là chỉ đọc và báo "Chỉ đọc", không được coi là ghi được. Test ở Task 1.
+4. **`drive_ls` nhận link file thay vì folder.** Phải báo rõ và gợi ý `drive_read`, không liệt kê rỗng. Test ở Task 2.
+5. **Link chưa share (Drive trả 404).** Lỗi tới model phải là `✗ 404: chưa share cho <email> …`, không bị bọc thành lỗi khác. Test ở Task 1 (404 ném nguyên) và Task 3 (render).
 
 ---
 
@@ -43,159 +47,41 @@ Khoá `mode` trong config thành công tắc an toàn chung. `readwrite` là m�
 
 | Task | Nội dung | Phụ thuộc |
 |---|---|---|
-| 1 | `drive.mjs`: `listSharedWithMe`, `listDrives`, `canEdit` trong `FILE_FIELDS`; `meta.mjs` thêm capabilities | — |
-| 2 | `access.mjs` (mới): `modeFromConfig`, `createAccess` | 1 |
-| 3 | `render.mjs`: `renderRoots`, `renderError` cho `AccessError` | 2 |
-| 4 | `tools.mjs` dùng `access`, `buildTools({ getClient, mode })` | 2, 3 |
-| 5 | `server/index.mjs` theo `mode`, `instructions.mjs`, test server | 4 |
-| 6 | CLI: bỏ `folder`, `cli-scope` rút gọn, `ls` liệt kê gốc, `status`, `init`; xoá module folder; bench | 2, 3, 4 |
-| 7 | Tài liệu: README, SKILL ×2, CHANGELOG, SECURITY, CONTRIBUTING; bump 0.5.0 | 1–6 |
-| 8 | Kiểm chứng trên Drive thật, đo token | 1–7 |
+| 1 | `meta.mjs` thêm capabilities, bỏ `findChild`; tạo `access.mjs` | — |
+| 2 | `render.mjs` (thêm `AccessError`, bỏ `renderFolders`); `tools.mjs` dùng `access` | 1 |
+| 3 | `server/index.mjs` chạy theo `mode`; `instructions.mjs` | 2 |
+| 4 | CLI bỏ `folder`, rút gọn `cli-scope`, sửa `status` và `init`; xoá module folder; bench | 1, 2 |
+| 5 | Tài liệu, bump 0.5.0 | 1–4 |
+| 6 | Kiểm chứng trên Drive thật, đo request | 1–5 |
+
+Từ Task 1 tới hết Task 4, `node --test` chạy toàn bộ sẽ chưa xanh vì `scope.mjs`, `cli-scope.mjs` và `bin/cli.mjs` vẫn còn tham chiếu tới những thứ đang đổi. Ở Task 1–3 chỉ chạy các file test được nêu tên.
 
 ---
 
-### Task 1: `drive.mjs` liệt kê gốc; capabilities trong metadata
+### Task 1: `meta.mjs` mang capabilities; `access.mjs`
 
 **Files:**
-- Modify: `src/drive.mjs` (`FILE_FIELDS` dòng 23–25; thêm 2 hàm sau `listFiles`)
-- Modify: `src/meta.mjs:8` (`META_FIELDS`)
-- Test: `test/drive.test.mjs`
-
-**Interfaces:**
-- Produces:
-  - `listSharedWithMe(client, { max = 1000, pageToken = null } = {}) → Promise<{ files: Array<{id,name,mimeType,modifiedTime?,size?,driveId?,capabilities}>, nextPageToken: string|null }>`
-  - `listDrives(client) → Promise<Array<{ id, name, capabilities }>>`
-  - `FILE_FIELDS` có `canEdit` trong `capabilities(...)`.
-  - `META_FIELDS === 'id,name,mimeType,size,parents,driveId,modifiedTime,webViewLink,shortcutDetails,capabilities(canEdit,canAddChildren)'`
-
-- [ ] **Step 1: Viết test hỏng**
-
-Thêm vào `test/drive.test.mjs`. Sửa dòng import đầu file thành:
-
-```js
-import { createFolder, downloadFile, exportFile, FILE_FIELDS, listDrives, listSharedWithMe, transferTimeoutMs, updateFile, uploadFile } from '../src/drive.mjs';
-import { META_FIELDS } from '../src/meta.mjs';
-```
-
-Thêm cuối file:
-
-```js
-test('listSharedWithMe: q sharedWithMe + trashed=false, lấy capabilities, đủ cờ all-drives', async () => {
-  const c = fakeClient({ files: [{ id: 'f1', name: 'gdriver' }], nextPageToken: 'n2' });
-  const res = await listSharedWithMe(c, { pageToken: 'p1' });
-  assert.deepEqual(res, { files: [{ id: 'f1', name: 'gdriver' }], nextPageToken: 'n2' });
-  const url = decodeURIComponent(c.calls[0].url.replace(/\+/g, ' '));
-  assert.match(url, /\/drive\/v3\/files\?/);
-  assert.match(url, /q=sharedWithMe = true and trashed = false/);
-  assert.match(url, /capabilities\(canEdit,canAddChildren\)/);
-  assert.match(url, /pageSize=1000/);
-  assert.match(url, /pageToken=p1/);
-  assert.match(url, /includeItemsFromAllDrives=true/);
-  assert.match(url, /supportsAllDrives=true/);
-});
-
-test('listDrives: gọi drives.list, trả mảng (rỗng khi API không có drives)', async () => {
-  const c = fakeClient({ drives: [{ id: 'd1', name: 'Team', capabilities: { canAddChildren: true } }] });
-  assert.deepEqual(await listDrives(c), [{ id: 'd1', name: 'Team', capabilities: { canAddChildren: true } }]);
-  assert.match(c.calls[0].url, /\/drive\/v3\/drives\?/);
-  assert.match(decodeURIComponent(c.calls[0].url), /capabilities\(canAddChildren\)/);
-  assert.deepEqual(await listDrives(fakeClient({})), []);
-});
-
-test('metadata mang capabilities.canEdit ở cả files.get (META_FIELDS) lẫn files.list (FILE_FIELDS)', () => {
-  assert.match(META_FIELDS, /capabilities\(canEdit,canAddChildren\)/);
-  assert.match(FILE_FIELDS, /capabilities\([^)]*canEdit[^)]*\)/);
-});
-```
-
-- [ ] **Step 2: Chạy test, xác nhận hỏng**
-
-Run: `node --test test/drive.test.mjs`
-Expected: FAIL. Import `listDrives`/`listSharedWithMe` không tồn tại (SyntaxError: does not provide an export named).
-
-- [ ] **Step 3: Cài đặt**
-
-Trong `src/drive.mjs`, sửa `FILE_FIELDS`:
-
-```js
-export const FILE_FIELDS =
-  'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,driveId,parents,' +
-  'capabilities(canAddChildren,canDownload,canEdit),exportLinks,shortcutDetails';
-```
-
-Thêm ngay sau hàm `listFiles`:
-
-```js
-const ROOT_FIELDS = 'id,name,mimeType,modifiedTime,size,driveId,capabilities(canEdit,canAddChildren)';
-
-/**
- * File và folder được share trực tiếp cho service account. Đây là "gốc" của những gì nó thấy
- * ngoài Shared Drive. Đo thật 2026-10-02: 5 folder, khoảng 950 ms.
- */
-export async function listSharedWithMe(client, { max = 1000, pageToken = null } = {}) {
-  const data = await client.api({
-    url: `${BASE}/files${buildQuery({
-      q: 'sharedWithMe = true and trashed = false',
-      fields: `nextPageToken,files(${ROOT_FIELDS})`,
-      pageSize: Math.min(Math.max(max, 1), 1000),
-      pageToken,
-      ...LIST_PARAMS,
-    })}`,
-  });
-  return { files: data.files ?? [], nextPageToken: data.nextPageToken ?? null };
-}
-
-/** Shared Drive mà service account là thành viên. */
-export async function listDrives(client) {
-  const data = await client.api({
-    url: `${BASE}/drives${buildQuery({ fields: 'drives(id,name,capabilities(canAddChildren))', pageSize: 100 })}`,
-  });
-  return data.drives ?? [];
-}
-```
-
-Trong `src/meta.mjs` sửa dòng 8:
-
-```js
-export const META_FIELDS = 'id,name,mimeType,size,parents,driveId,modifiedTime,webViewLink,shortcutDetails,capabilities(canEdit,canAddChildren)';
-```
-
-- [ ] **Step 4: Chạy test, xác nhận qua**
-
-Run: `node --test test/drive.test.mjs`
-Expected: PASS toàn bộ.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/drive.mjs src/meta.mjs test/drive.test.mjs
-git commit -m "feat(drive): liệt kê mục được share và Shared Drive; metadata mang canEdit
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-```
-
----
-
-### Task 2: `access.mjs` — gốc, phân giải địa chỉ, kiểm quyền ghi
-
-**Files:**
+- Modify: `src/meta.mjs`
+  - dòng 8: `META_FIELDS`;
+  - xoá hàm `findChild` (dòng 17–24) và import `listFiles`.
 - Create: `src/access.mjs`
 - Test: `test/access.test.mjs`
 
 **Interfaces:**
-- Consumes: `listSharedWithMe`, `listDrives` (Task 1); `createTtlCache` từ `src/cache.mjs`; `parseGoogleUrl` từ `src/url.mjs`; đối tượng `meta` của `createMetaStore` (`file(id)`, `findChild(parentId, name)`).
+- Consumes:
+  - `parseGoogleUrl(input) → { kind, id, gid }` (`gid` là `null` khi không có) từ `src/url.mjs`;
+  - `meta.file(id)` từ `createMetaStore`.
 - Produces:
-  - `MIME_SHARED_DRIVE = 'shared-drive'`
+  - `META_FIELDS === 'id,name,mimeType,size,parents,driveId,modifiedTime,webViewLink,shortcutDetails,capabilities(canEdit,canAddChildren)'`
   - `READONLY_HINT = 'bật ghi: gdrive init --mode readwrite --yes'`
-  - `class AccessError extends Error { name = 'AccessError'; code: 'READ_ONLY'|'NOT_FOUND'|'AMBIGUOUS' }`
+  - `class AccessError extends Error` có `name = 'AccessError'`, `code` là `'READ_ONLY'` hoặc `'NOT_FOUND'`.
   - `modeFromConfig(cfg) → 'readonly'|'readwrite'`
-  - `createAccess({ client, meta, mode = 'readwrite', now = Date.now, ttlMs = 300000 })` trả:
-    - `mode`
-    - `roots({ query?, limit?, offset? }) → Promise<{ items: Array<{id,name,mimeType,access:'read'|'write'}>, total, next: number|null }>`
-    - `resolve(input) → Promise<{ fileId, meta, gid }>`
-    - `accessOf(meta) → 'read'|'write'`
-    - `assertCanEdit(meta)`, `assertCanAddChildren(meta)` (ném `AccessError('READ_ONLY')`)
-    - `invalidate()`
+  - `createAccess({ meta, mode = 'readwrite' })` trả về:
+    - `mode`;
+    - `resolve(input) → Promise<{ fileId, meta, gid }>`;
+    - `accessOf(meta) → 'read'|'write'`;
+    - `assertCanEdit(meta)`;
+    - `assertCanAddChildren(meta)`.
 
 - [ ] **Step 1: Viết test hỏng**
 
@@ -205,223 +91,118 @@ Tạo `test/access.test.mjs`:
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { AccessError, createAccess, MIME_SHARED_DRIVE, modeFromConfig } from '../src/access.mjs';
+import { AccessError, createAccess, modeFromConfig } from '../src/access.mjs';
+import { META_FIELDS } from '../src/meta.mjs';
 
-const FOLDER = 'application/vnd.google-apps.folder';
 const SHEET = 'application/vnd.google-apps.spreadsheet';
 const SHORTCUT = 'application/vnd.google-apps.shortcut';
 const RW = { canEdit: true, canAddChildren: true };
 const RO = { canEdit: false, canAddChildren: false };
 
-// Gốc được share: gdriverAAA (Editor), viewOnly1 (Viewer), Packflow_Test_Artifacts (tên giống id),
-// hai gốc trùng tên "Trung". Shared Drive: sd1 (thành viên ghi được).
 const FILES = {
-  gdriverAAA: { id: 'gdriverAAA', name: 'gdriver', mimeType: FOLDER, capabilities: RW },
-  subAAAAAAA: { id: 'subAAAAAAA', name: 'bao cao', mimeType: FOLDER, parents: ['gdriverAAA'], capabilities: RW },
-  sheetAAAAA: { id: 'sheetAAAAA', name: 'KPI', mimeType: SHEET, parents: ['subAAAAAAA'], capabilities: RW },
-  viewOnly1: { id: 'viewOnly1', name: 'Rồng Việt SPEC', mimeType: FOLDER, capabilities: RO },
-  roSheet01: { id: 'roSheet01', name: 'spec', mimeType: SHEET, parents: ['viewOnly1'], capabilities: RO },
-  packRoot1: { id: 'packRoot1', name: 'Packflow_Test_Artifacts', mimeType: FOLDER, capabilities: RW },
-  trungAAAA: { id: 'trungAAAA', name: 'Trung', mimeType: FOLDER, capabilities: RW },
-  trungBBBB: { id: 'trungBBBB', name: 'Trung', mimeType: FOLDER, capabilities: RO },
-  shortAAAA: { id: 'shortAAAA', name: 'link', mimeType: SHORTCUT, parents: ['gdriverAAA'], shortcutDetails: { targetId: 'roSheet01' } },
-  brokenSc1: { id: 'brokenSc1', name: 'hong', mimeType: SHORTCUT, parents: ['gdriverAAA'] },
+  sheetRWaaa: { id: 'sheetRWaaa', name: 'KPI', mimeType: SHEET, capabilities: RW },
+  sheetROaaa: { id: 'sheetROaaa', name: 'spec', mimeType: SHEET, capabilities: RO },
+  noCapsAaaa: { id: 'noCapsAaaa', name: 'cu', mimeType: SHEET },
+  shortAAAAA: { id: 'shortAAAAA', name: 'link', mimeType: SHORTCUT, shortcutDetails: { targetId: 'sheetROaaa' }, capabilities: RW },
+  brokenScaa: { id: 'brokenScaa', name: 'hong', mimeType: SHORTCUT },
 };
-const SHARED = ['gdriverAAA', 'viewOnly1', 'packRoot1', 'trungAAAA', 'trungBBBB'];
 
-function fakes({ drives = [{ id: 'sd1', name: 'Team Drive', capabilities: { canAddChildren: true } }], sharedPages = null } = {}) {
+function fakeMeta() {
   const calls = [];
-  const client = {
+  return {
     calls,
-    async api({ url }) {
-      calls.push(url);
-      if (/\/drive\/v3\/drives\?/.test(url)) return { drives };
-      if (/sharedWithMe/.test(decodeURIComponent(url.replace(/\+/g, ' ')))) {
-        if (sharedPages) {
-          const token = new URL(url).searchParams.get('pageToken');
-          return sharedPages[token ?? 'first'];
-        }
-        return { files: SHARED.map((id) => FILES[id]) };
-      }
-      throw new Error(`fake: ${url}`);
-    },
-  };
-  const metaCalls = [];
-  const meta = {
-    calls: metaCalls,
     async file(id) {
-      metaCalls.push(`file:${id}`);
+      calls.push(id);
       if (!FILES[id]) throw Object.assign(new Error('File not found'), { code: 404 });
       return FILES[id];
     },
-    async findChild(parentId, name) {
-      metaCalls.push(`child:${parentId}/${name}`);
-      return Object.values(FILES).find((f) => (f.parents ?? []).includes(parentId) && f.name === name) ?? null;
-    },
   };
-  return { client, meta };
 }
 
-test('modeFromConfig: không config → readonly; thiếu mode → readwrite; readonly giữ nguyên', () => {
+test('META_FIELDS mang capabilities(canEdit,canAddChildren)', () => {
+  assert.match(META_FIELDS, /capabilities\(canEdit,canAddChildren\)/);
+});
+
+test('modeFromConfig: không config → readonly; thiếu mode → readwrite; readonly giữ nguyên, folders bị bỏ qua', () => {
   assert.equal(modeFromConfig(null), 'readonly');
   assert.equal(modeFromConfig({ clientEmail: 'x' }), 'readwrite');
   assert.equal(modeFromConfig({ mode: 'readwrite' }), 'readwrite');
   assert.equal(modeFromConfig({ mode: 'readonly', folders: [{ id: 'a', name: 'b', access: 'write' }] }), 'readonly');
 });
 
-test('roots: gộp Shared Drive + sharedWithMe, nhãn theo capabilities', async () => {
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta });
-  const { items, total, next } = await access.roots();
-  assert.equal(total, 6);
-  assert.equal(next, null);
-  assert.deepEqual(items[0], { id: 'sd1', name: 'Team Drive', mimeType: MIME_SHARED_DRIVE, access: 'write' });
-  assert.deepEqual(items.find((r) => r.id === 'gdriverAAA').access, 'write');
-  assert.deepEqual(items.find((r) => r.id === 'viewOnly1').access, 'read');
+test('resolve: id và URL (giữ gid), mỗi lần đúng 1 lần đọc metadata', async () => {
+  const meta = fakeMeta();
+  const access = createAccess({ meta });
+  const a = await access.resolve('sheetRWaaa');
+  assert.equal(a.fileId, 'sheetRWaaa');
+  assert.equal(a.gid, null);
+  const b = await access.resolve('https://docs.google.com/spreadsheets/d/sheetRWaaa/edit#gid=7');
+  assert.equal(b.fileId, 'sheetRWaaa');
+  assert.equal(b.gid, '7');
+  assert.deepEqual(meta.calls, ['sheetRWaaa', 'sheetRWaaa']);
 });
 
-test('roots: mode readonly ép mọi nhãn thành read', async () => {
-  const { client, meta } = fakes();
-  const { items } = await createAccess({ client, meta, mode: 'readonly' }).roots();
-  assert.ok(items.every((r) => r.access === 'read'));
+test('resolve: shortcut giải về file đích (quyền theo đích); shortcut hỏng → NOT_FOUND', async () => {
+  const access = createAccess({ meta: fakeMeta() });
+  const r = await access.resolve('shortAAAAA');
+  assert.equal(r.fileId, 'sheetROaaa');
+  assert.equal(access.accessOf(r.meta), 'read');
+  await assert.rejects(access.resolve('brokenScaa'), (e) => e instanceof AccessError && e.code === 'NOT_FOUND');
 });
 
-test('roots: query lọc không phân biệt hoa thường, limit/offset cắt và trả next', async () => {
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta });
-  assert.deepEqual((await access.roots({ query: 'TRUNG' })).items.map((r) => r.id), ['trungAAAA', 'trungBBBB']);
-  const page1 = await access.roots({ limit: 4 });
-  assert.equal(page1.items.length, 4);
-  assert.equal(page1.next, 4);
-  const page2 = await access.roots({ limit: 4, offset: 4 });
-  assert.deepEqual(page2.items.map((r) => r.id), ['trungAAAA', 'trungBBBB']);
-  assert.equal(page2.next, null);
-  assert.equal((await access.roots({ limit: 9999 })).items.length, 6, 'limit kẹp tối đa 200, không lỗi');
+test('resolve: Drive 404 ném lên nguyên vẹn (renderError sẽ báo chưa share)', async () => {
+  await assert.rejects(createAccess({ meta: fakeMeta() }).resolve('khongShare1'), (e) => e.code === 404 && !(e instanceof AccessError));
 });
 
-test('roots: cache 5 phút (gọi lại không tốn request), invalidate() xoá cache, hết TTL tải lại', async () => {
-  let t = 0;
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta, now: () => t });
-  await access.roots();
-  await access.roots({ query: 'x' });
-  assert.equal(client.calls.length, 2, 'drives + sharedWithMe, đúng một lần');
-  access.invalidate();
-  await access.roots();
-  assert.equal(client.calls.length, 4);
-  t = 5 * 60_000 + 1;
-  await access.roots();
-  assert.equal(client.calls.length, 6);
+test('accessOf / assertCanEdit / assertCanAddChildren theo capabilities; thiếu capabilities = chỉ đọc', () => {
+  const rw = createAccess({ meta: fakeMeta() });
+  rw.assertCanEdit(FILES.sheetRWaaa);
+  rw.assertCanAddChildren({ name: 'f', capabilities: RW });
+  assert.equal(rw.accessOf(FILES.sheetRWaaa), 'write');
+  assert.equal(rw.accessOf(FILES.sheetROaaa), 'read');
+  assert.equal(rw.accessOf(FILES.noCapsAaaa), 'read');
+  assert.throws(() => rw.assertCanEdit(FILES.sheetROaaa), (e) => e.code === 'READ_ONLY' && e.message === 'Chỉ đọc: service account chưa có quyền Editor với "spec".');
+  assert.throws(() => rw.assertCanEdit(FILES.noCapsAaaa), (e) => e.code === 'READ_ONLY');
+  assert.throws(() => rw.assertCanAddChildren({ name: 'f', capabilities: RO }), (e) => e.code === 'READ_ONLY' && /"f"/.test(e.message));
 });
 
-test('roots: sharedWithMe nhiều trang được đi hết', async () => {
-  const sharedPages = {
-    first: { files: [FILES.gdriverAAA], nextPageToken: 'p2' },
-    p2: { files: [FILES.viewOnly1], nextPageToken: null },
-  };
-  const { client, meta } = fakes({ drives: [], sharedPages });
-  const { items } = await createAccess({ client, meta }).roots();
-  assert.deepEqual(items.map((r) => r.id), ['gdriverAAA', 'viewOnly1']);
-});
-
-test('resolve: id trần và URL đọc thẳng, không tải danh sách gốc', async () => {
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta });
-  assert.equal((await access.resolve('sheetAAAAA')).fileId, 'sheetAAAAA');
-  const r = await access.resolve('https://docs.google.com/spreadsheets/d/sheetAAAAA/edit#gid=7');
-  assert.equal(r.fileId, 'sheetAAAAA');
-  assert.equal(r.gid, '7');
-  assert.equal(client.calls.length, 0);
-});
-
-test('resolve: tên-gốc/đường/dẫn có khoảng trắng và dấu', async () => {
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta });
-  const r = await access.resolve('gdriver/bao cao/KPI');
-  assert.equal(r.fileId, 'sheetAAAAA');
-  assert.equal(r.gid, null);
-  assert.equal((await access.resolve('Rồng Việt SPEC')).fileId, 'viewOnly1');
-});
-
-test('resolve: tên gốc giống id → 404 thì rơi về khớp tên gốc', async () => {
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta });
-  assert.equal((await access.resolve('Packflow_Test_Artifacts')).fileId, 'packRoot1');
-  assert.ok(meta.calls.includes('file:Packflow_Test_Artifacts'), 'đã thử như id trước');
-});
-
-test('resolve: id không share và không trùng tên gốc → giữ lỗi 404 ban đầu', async () => {
-  const { client, meta } = fakes();
-  await assert.rejects(createAccess({ client, meta }).resolve('khongShare1'), (e) => e.code === 404);
-});
-
-test('resolve: hai gốc trùng tên → AMBIGUOUS kèm cả hai id', async () => {
-  const { client, meta } = fakes();
-  await assert.rejects(createAccess({ client, meta }).resolve('Trung/x'), (e) => e instanceof AccessError && e.code === 'AMBIGUOUS' && /trungAAAA/.test(e.message) && /trungBBBB/.test(e.message));
-});
-
-test('resolve: tên gốc không có / đoạn đường dẫn không có → NOT_FOUND', async () => {
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta });
-  await assert.rejects(access.resolve('Khong Co/a'), (e) => e.code === 'NOT_FOUND' && /drive_ls/.test(e.message));
-  await assert.rejects(access.resolve('gdriver/khong-co'), (e) => e.code === 'NOT_FOUND' && /khong-co/.test(e.message));
-  await assert.rejects(access.resolve('gdriver/bao cao/KPI/con'), (e) => e.code === 'NOT_FOUND' && /không phải folder/.test(e.message));
-});
-
-test('resolve: shortcut giải về file đích; shortcut hỏng → NOT_FOUND', async () => {
-  const { client, meta } = fakes();
-  const access = createAccess({ client, meta });
-  const r = await access.resolve('shortAAAA');
-  assert.equal(r.fileId, 'roSheet01');
-  assert.equal(r.meta.capabilities.canEdit, false);
-  await assert.rejects(access.resolve('brokenSc1'), (e) => e.code === 'NOT_FOUND');
-});
-
-test('assertCanEdit / assertCanAddChildren / accessOf theo capabilities và mode', () => {
-  const { client, meta } = fakes();
-  const rw = createAccess({ client, meta });
-  rw.assertCanEdit(FILES.sheetAAAAA);
-  rw.assertCanAddChildren(FILES.gdriverAAA);
-  assert.equal(rw.accessOf(FILES.sheetAAAAA), 'write');
-  assert.equal(rw.accessOf(FILES.roSheet01), 'read');
-  assert.throws(() => rw.assertCanEdit(FILES.roSheet01), (e) => e.code === 'READ_ONLY' && /Editor/.test(e.message) && /spec/.test(e.message));
-  assert.throws(() => rw.assertCanAddChildren(FILES.viewOnly1), (e) => e.code === 'READ_ONLY');
-  assert.throws(() => rw.assertCanEdit({ name: 'x' }), (e) => e.code === 'READ_ONLY', 'thiếu capabilities → coi như chỉ đọc');
-  const ro = createAccess({ client, meta, mode: 'readonly' });
-  assert.equal(ro.accessOf(FILES.sheetAAAAA), 'read');
-  assert.throws(() => ro.assertCanEdit(FILES.sheetAAAAA), (e) => e.code === 'READ_ONLY' && /readonly/.test(e.message));
+test('mode readonly: mọi thứ là read, assert ném READ_ONLY kèm gợi ý bật ghi', () => {
+  const ro = createAccess({ meta: fakeMeta(), mode: 'readonly' });
+  assert.equal(ro.mode, 'readonly');
+  assert.equal(ro.accessOf(FILES.sheetRWaaa), 'read');
+  assert.throws(() => ro.assertCanEdit(FILES.sheetRWaaa), (e) => e.code === 'READ_ONLY' && /gdrive init --mode readwrite --yes/.test(e.message));
 });
 ```
 
 - [ ] **Step 2: Chạy test, xác nhận hỏng**
 
 Run: `node --test test/access.test.mjs`
-Expected: FAIL, `Cannot find module '.../src/access.mjs'`.
+Expected: FAIL với `Cannot find module '.../src/access.mjs'`.
 
 - [ ] **Step 3: Cài đặt**
+
+`src/meta.mjs`:
+- Dòng 8:
+
+```js
+export const META_FIELDS = 'id,name,mimeType,size,parents,driveId,modifiedTime,webViewLink,shortcutDetails,capabilities(canEdit,canAddChildren)';
+```
+
+- Xoá phương thức `findChild`. Chỉ `scope.mjs` dùng nó, và file đó bị xoá ở Task 4.
+- Sửa dòng import thành `import { getFile } from './drive.mjs';`.
 
 Tạo `src/access.mjs`:
 
 ```js
-// Quyền theo share trên Drive (v0.5.0). Service account mở được file nào thì AI dùng được file
-// đó; ghi được hay không do `capabilities` Drive trả về quyết định. Kiểm tra ở đây để báo lỗi
-// dễ hiểu và chặn trước khi gọi API ghi. Drive vẫn là nơi chặn cuối cùng.
-//
-// "Gốc" là những gì service account thấy ở cấp trên cùng: Shared Drive nó là thành viên, và
-// file/folder share trực tiếp cho nó. `drive_ls` không tham số liệt kê gốc, và địa chỉ dạng
-// `tên-gốc/đường/dẫn` đi từ đó.
+// Quyền theo share trên Drive (v0.5.0). Người dùng gửi link, server mở thẳng link đó: service
+// account mở được thì đọc được, là Editor thì ghi được. Quyền đọc từ `capabilities` nằm sẵn
+// trong metadata đã cache, nên không tốn thêm request. Kiểm tra ở đây để báo lỗi dễ hiểu và
+// chặn trước khi gọi API ghi; Drive vẫn là nơi chặn cuối cùng.
 
-import { createTtlCache } from './cache.mjs';
-import { listDrives, listSharedWithMe } from './drive.mjs';
 import { parseGoogleUrl } from './url.mjs';
 
-const MIME_FOLDER = 'application/vnd.google-apps.folder';
 const MIME_SHORTCUT = 'application/vnd.google-apps.shortcut';
-const BARE_ID_RE = /^[A-Za-z0-9_-]{8,}$/;
-const TTL_MS = 5 * 60_000;
-const MAX_ROOTS = 1000;
 
-export const MIME_SHARED_DRIVE = 'shared-drive';
 export const READONLY_HINT = 'bật ghi: gdrive init --mode readwrite --yes';
 
 export class AccessError extends Error {
@@ -432,70 +213,16 @@ export class AccessError extends Error {
   }
 }
 
-const isNotFound = (err) => err?.status === 404 || Number(err?.code) === 404;
-
-/** Không có config: readonly (chưa có credential thì cũng không ghi được). Có mà thiếu `mode`: readwrite. */
+/** Không có config: readonly (chưa có credential). Có config mà thiếu `mode`: readwrite. */
 export function modeFromConfig(cfg) {
   if (!cfg) return 'readonly';
   return cfg.mode === 'readonly' ? 'readonly' : 'readwrite';
 }
 
-export function createAccess({ client, meta, mode = 'readwrite', now = Date.now, ttlMs = TTL_MS }) {
-  const cache = createTtlCache({ ttlMs, now });
+export function createAccess({ meta, mode = 'readwrite' }) {
   const writable = (flag) => mode === 'readwrite' && flag === true;
 
-  async function loadShared() {
-    const out = [];
-    let pageToken = null;
-    do {
-      const page = await listSharedWithMe(client, { pageToken });
-      out.push(...page.files);
-      pageToken = page.nextPageToken;
-    } while (pageToken && out.length < MAX_ROOTS);
-    return out.slice(0, MAX_ROOTS);
-  }
-
-  async function loadRoots() {
-    const [drives, shared] = await Promise.all([listDrives(client), loadShared()]);
-    return [
-      ...drives.map((d) => ({ id: d.id, name: d.name, mimeType: MIME_SHARED_DRIVE, access: writable(d.capabilities?.canAddChildren) ? 'write' : 'read' })),
-      ...shared.map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType, access: writable(f.capabilities?.canEdit) ? 'write' : 'read' })),
-    ];
-  }
-  const allRoots = () => cache.getOrLoad('roots', loadRoots);
-
-  /** Metadata của `id`; shortcut thì trả metadata file đích. */
-  async function target(id) {
-    let m = await meta.file(id);
-    if (m.mimeType === MIME_SHORTCUT) {
-      const targetId = m.shortcutDetails?.targetId;
-      if (!targetId) throw new AccessError('NOT_FOUND', `Shortcut "${m.name}" không có đích.`);
-      m = await meta.file(targetId);
-    }
-    return { fileId: m.id, meta: m };
-  }
-
-  async function byRootName(raw) {
-    const [first, ...rest] = raw.split('/');
-    const segments = rest.filter(Boolean);
-    const matches = (await allRoots()).filter((r) => r.name === first);
-    if (matches.length > 1) {
-      throw new AccessError('AMBIGUOUS', `Có ${matches.length} mục tên "${first}": dùng id ${matches.map((r) => r.id).join(' hoặc ')}.`);
-    }
-    if (!matches.length) throw new AccessError('NOT_FOUND', `Không có mục nào tên "${first}" được share. Gọi drive_ls để xem.`);
-    let current = { id: matches[0].id, mimeType: MIME_FOLDER };
-    let walked = first;
-    for (const segment of segments) {
-      if (current.mimeType !== MIME_FOLDER) throw new AccessError('NOT_FOUND', `"${walked}" không phải folder.`);
-      const child = await meta.findChild(current.id, segment);
-      if (!child) throw new AccessError('NOT_FOUND', `Không có "${segment}" trong "${walked}".`);
-      current = child;
-      walked += `/${segment}`;
-    }
-    return { ...(await target(current.id)), gid: null };
-  }
-
-  function denyUnless(flag, m) {
+  function deny(flag, m) {
     if (mode !== 'readwrite') throw new AccessError('READ_ONLY', `Đang ở chế độ readonly, không ghi. ${READONLY_HINT}`);
     if (flag !== true) throw new AccessError('READ_ONLY', `Chỉ đọc: service account chưa có quyền Editor với "${m?.name ?? '?'}".`);
   }
@@ -503,42 +230,21 @@ export function createAccess({ client, meta, mode = 'readwrite', now = Date.now,
   return {
     mode,
 
-    async roots({ query = null, limit = 30, offset = 0 } = {}) {
-      const all = await allRoots();
-      const q = query ? String(query).toLowerCase() : null;
-      const hit = q ? all.filter((r) => r.name.toLowerCase().includes(q)) : all;
-      const lim = Math.min(Math.max(Number(limit) || 30, 1), 200);
-      const off = Math.max(Number(offset) || 0, 0);
-      return { items: hit.slice(off, off + lim), total: hit.length, next: off + lim < hit.length ? off + lim : null };
-    },
-
-    /** `input`: URL Google, id trần, hoặc `tên-gốc/đường/dẫn`. Xem spec mục 2 về thứ tự thử. */
+    /** URL Google hoặc id → metadata. Shortcut thì trả file đích; lỗi 404 của Drive ném nguyên. */
     async resolve(input) {
-      const raw = String(input ?? '').trim();
-      if (raw.includes(':')) {
-        const { id, gid } = parseGoogleUrl(raw);
-        return { ...(await target(id)), gid };
+      const { id, gid } = parseGoogleUrl(String(input ?? '').trim());
+      let m = await meta.file(id);
+      if (m.mimeType === MIME_SHORTCUT) {
+        const targetId = m.shortcutDetails?.targetId;
+        if (!targetId) throw new AccessError('NOT_FOUND', `Shortcut "${m.name}" không có đích.`);
+        m = await meta.file(targetId);
       }
-      if (!raw.includes('/') && BARE_ID_RE.test(raw)) {
-        try {
-          return { ...(await target(raw)), gid: null };
-        } catch (err) {
-          if (!isNotFound(err)) throw err;
-          try {
-            return await byRootName(raw);
-          } catch (nameErr) {
-            if (nameErr instanceof AccessError && nameErr.code === 'NOT_FOUND') throw err;
-            throw nameErr;
-          }
-        }
-      }
-      return byRootName(raw);
+      return { fileId: m.id, meta: m, gid };
     },
 
     accessOf: (m) => (writable(m?.capabilities?.canEdit) ? 'write' : 'read'),
-    assertCanEdit: (m) => denyUnless(m?.capabilities?.canEdit, m),
-    assertCanAddChildren: (m) => denyUnless(m?.capabilities?.canAddChildren, m),
-    invalidate: () => cache.clear(),
+    assertCanEdit: (m) => deny(m?.capabilities?.canEdit, m),
+    assertCanAddChildren: (m) => deny(m?.capabilities?.canAddChildren, m),
   };
 }
 ```
@@ -546,148 +252,69 @@ export function createAccess({ client, meta, mode = 'readwrite', now = Date.now,
 - [ ] **Step 4: Chạy test, xác nhận qua**
 
 Run: `node --test test/access.test.mjs`
-Expected: PASS toàn bộ 14 test.
+Expected: PASS cả 7 test.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/access.mjs test/access.test.mjs
-git commit -m "feat(access): quyền theo capabilities của Drive, gốc = Shared Drive + sharedWithMe
+git add src/access.mjs src/meta.mjs test/access.test.mjs
+git commit -m "feat(access): quyền theo capabilities của Drive; metadata mang canEdit
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 3: `render.mjs` — `renderRoots`, lỗi `AccessError`
+### Task 2: `render.mjs` và `tools.mjs` dùng `access`
 
 **Files:**
-- Modify: `src/render.mjs` (thay `renderFolders` dòng 38–41; nhánh `ScopeError` trong `renderError`)
-- Test: `test/render.test.mjs` (thay test `renderFolders` ở dòng ~20–23)
+- Modify: `src/render.mjs`
+  - xoá `renderFolders` (dòng 38–41);
+  - đổi nhánh `ScopeError` trong `renderError`.
+- Modify: `src/tools.mjs`
+- Test: `test/render.test.mjs`, `test/tools.test.mjs`
 
 **Interfaces:**
-- Consumes: `MIME_SHARED_DRIVE`, `READONLY_HINT` (Task 2).
+- Consumes:
+  - `createAccess`, `AccessError` (Task 1);
+  - `createMetaStore` (`src/meta.mjs`).
 - Produces:
-  - `renderRoots({ items, total, next = null, mode = 'readwrite' }) → string`
-  - `renderError(err, { email })`: `AccessError` → `✗ <dòng đầu message>`.
+  - `buildTools({ getClient, mode = 'readwrite', now = Date.now }) → Array<{ name, write, description, inputSchema, run }>`. Với `mode: 'readonly'` chỉ còn `drive_ls` và `drive_read`.
+  - `renderError(err, { email })`: với `AccessError` trả `✗ <dòng đầu>`.
   - `renderFolders` bị xoá.
 
 - [ ] **Step 1: Viết test hỏng**
 
-Trong `test/render.test.mjs`, đổi `renderFolders` thành `renderRoots` ở dòng import. Xoá test của `renderFolders` (đoạn assert `'# 2 folders\nd test-run (write) 1XyZ\nd bao-cao (read) 1AbC'`) và thay bằng:
+`test/render.test.mjs`:
+- Bỏ `renderFolders` khỏi import.
+- Xoá test của `renderFolders`, tức đoạn assert `'# 2 folders\nd test-run (write) 1XyZ\nd bao-cao (read) 1AbC'`.
+- Thêm test dưới đây. Nếu `renderError` chưa có trong import thì thêm vào.
 
 ```js
-test('renderRoots: Shared Drive mã D, nhãn quyền, next; readonly có gợi ý; rỗng có hướng dẫn share', () => {
-  const items = [
-    { id: '0AAbc', name: 'Team Drive', mimeType: 'shared-drive', access: 'write' },
-    { id: '1xmed', name: 'gdriver', mimeType: 'application/vnd.google-apps.folder', access: 'write' },
-    { id: '1Def', name: 'Báo cáo tuần', mimeType: 'application/vnd.google-apps.spreadsheet', access: 'read' },
-  ];
-  assert.equal(
-    renderRoots({ items, total: 5, next: 3 }),
-    '# 5 shared · next=3\nD Team Drive (write) 0AAbc\nd gdriver (write) 1xmed\ns Báo cáo tuần (read) 1Def',
-  );
-  assert.equal(
-    renderRoots({ items: items.slice(2), total: 1, mode: 'readonly' }).split('\n')[0],
-    '# 1 shared · readonly — bật ghi: gdrive init --mode readwrite --yes',
-  );
-  assert.equal(renderRoots({ items: [], total: 0 }), '# 0 shared · share folder cho email service account (xem gdrive status)');
-});
-
 test('renderError: AccessError in dòng đầu với ✗', () => {
   const e = Object.assign(new Error('Chỉ đọc: service account chưa có quyền Editor với "KPI".\nchi tiết'), { name: 'AccessError', code: 'READ_ONLY' });
   assert.equal(renderError(e), '✗ Chỉ đọc: service account chưa có quyền Editor với "KPI".');
 });
 ```
 
-(Nếu `renderError` chưa có trong dòng import của file test thì thêm vào.)
+`test/tools.test.mjs`:
 
-- [ ] **Step 2: Chạy test, xác nhận hỏng**
-
-Run: `node --test test/render.test.mjs`
-Expected: FAIL, `does not provide an export named 'renderRoots'`.
-
-- [ ] **Step 3: Cài đặt**
-
-Trong `src/render.mjs`, thêm import:
-
-```js
-import { MIME_SHARED_DRIVE, READONLY_HINT } from './access.mjs';
-```
-
-Thay `renderFolders` bằng:
-
-```js
-export function renderRoots({ items, total, next = null, mode = 'readwrite' }) {
-  if (!total) return '# 0 shared · share folder cho email service account (xem gdrive status)';
-  const head = `# ${total} shared${mode === 'readonly' ? ` · readonly — ${READONLY_HINT}` : ''}${next !== null ? ` · next=${next}` : ''}`;
-  const lines = items.map((r) => `${r.mimeType === MIME_SHARED_DRIVE ? 'D' : typeCode(r.mimeType, r.name)} ${r.name} (${r.access}) ${r.id}`);
-  return [head, ...lines].join('\n');
-}
-```
-
-Trong `renderError`, thay dòng `if (err?.name === 'ScopeError') return \`✗ ${msg}\`;` bằng:
-
-```js
-  if (err?.name === 'AccessError') return `✗ ${msg}`;
-```
-
-- [ ] **Step 4: Chạy test, xác nhận qua**
-
-Run: `node --test test/render.test.mjs`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/render.mjs test/render.test.mjs
-git commit -m "feat(render): renderRoots cho danh sách được share, lỗi AccessError
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-```
-
-`bin/cli.mjs` và `src/tools.mjs` vẫn import `renderFolders` nên tới hết Task 6 suite đầy đủ chưa xanh. Ở các task 3–5 chỉ chạy file test của task đó.
-
----
-
-### Task 4: `tools.mjs` dùng `access`
-
-**Files:**
-- Modify: `src/tools.mjs` (toàn file)
-- Test: `test/tools.test.mjs` (fixture và các test liên quan phạm vi)
-
-**Interfaces:**
-- Consumes: `createAccess`, `AccessError` (Task 2); `renderRoots` (Task 3); `createMetaStore` (`src/meta.mjs`).
-- Produces: `buildTools({ getClient, mode = 'readwrite', now = Date.now }) → Array<{ name, write, description, inputSchema, run }>`. Có `mode: 'readonly'` thì chỉ còn `drive_ls`, `drive_read`.
-
-- [ ] **Step 1: Viết lại test**
-
-Trong `test/tools.test.mjs`, thay khối từ `const FILES = {` đến hết hàm `tools` (dòng 11–75) bằng:
+1. Thay `const FILES = {…}` (dòng 11–20) bằng:
 
 ```js
 const RW = { canEdit: true, canAddChildren: true };
 const RO = { canEdit: false, canAddChildren: false };
-// `shared: true` = gốc trả về từ sharedWithMe.
 const FILES = {
-  rootAaaaa: { id: 'rootAaaaa', name: 'Test Run', mimeType: FOLDER, parents: [], driveId: 'sd1', capabilities: RW, shared: true },
-  rootCaaaa: { id: 'rootCaaaa', name: 'My Drive folder', mimeType: FOLDER, parents: [], capabilities: RW, shared: true },
+  rootAaaaa: { id: 'rootAaaaa', name: 'Test Run', mimeType: FOLDER, parents: [], driveId: 'sd1', capabilities: RW },
+  rootCaaaa: { id: 'rootCaaaa', name: 'My Drive folder', mimeType: FOLDER, parents: [], capabilities: RW },
   sheet1aaaa: { id: 'sheet1aaaa', name: 'TC_login', mimeType: GSHEET, parents: ['rootAaaaa'], modifiedTime: '2026-09-30T00:00:00Z', capabilities: RW },
   book1aaaa: { id: 'book1aaaa', name: 'report.xlsx', mimeType: XLSX, parents: ['rootAaaaa'], size: '2048', capabilities: RW },
-  rootBaaaa: { id: 'rootBaaaa', name: 'Bao cao', mimeType: FOLDER, parents: [], capabilities: RO, shared: true },
+  rootBaaaa: { id: 'rootBaaaa', name: 'Bao cao', mimeType: FOLDER, parents: [], capabilities: RO },
   sheetBaaaa: { id: 'sheetBaaaa', name: 'KPI', mimeType: GSHEET, parents: ['rootBaaaa'], capabilities: RO },
 };
 ```
 
-Trong `fakeClient`, ngay đầu `async api(opts)` sau `const u = opts.url;`, thêm hai nhánh:
-
-```js
-      if (/drive\/v3\/drives\?/.test(u)) return { drives: [] };
-      if (/sharedWithMe/.test(decodeURIComponent(u.replace(/\+/g, ' ')))) return { files: Object.values(all).filter((f) => f.shared), nextPageToken: null };
-```
-
-Nhánh list cũ (`if (/drive\/v3\/files\?/.test(u)) { ... }`) giữ nguyên, nhưng đổi dòng return để bỏ `capabilities` khi list. Lý do: mô phỏng `files.list` dùng `FILE_FIELDS`; Task 1 đã thêm `canEdit` vào đó nên vẫn giữ `capabilities`. Không đổi gì.
-
-Thay `FOLDERS_RW`/`FOLDERS_RO`/`tools` bằng:
+2. Thay `FOLDERS_RW`, `FOLDERS_RO` và hàm `tools` bằng:
 
 ```js
 const tools = (mode = 'readwrite', client = fakeClient()) => {
@@ -696,7 +323,27 @@ const tools = (mode = 'readwrite', client = fakeClient()) => {
 };
 ```
 
-Thay các test dùng `FOLDERS_*` như sau. Giữ nguyên các test chỉ đổi lời gọi `tools(FOLDERS_RW…)` thành `tools()` và `tools(FOLDERS_RW, fakeClient(...))` thành `tools('readwrite', fakeClient(...))`, đồng thời đổi đường dẫn `test-run` thành `Test Run`, `bao-cao` thành `Bao cao`, `my-drive` thành `My Drive folder`. Các test phải viết lại hẳn:
+3. Thay đồng loạt trong các test còn giữ:
+
+| Cũ | Mới |
+|---|---|
+| `tools(FOLDERS_RW)` | `tools()` |
+| `tools(FOLDERS_RW, fakeClient(…))` | `tools('readwrite', fakeClient(…))` |
+| địa chỉ `'test-run'` | `'rootAaaaa'` |
+| địa chỉ `'bao-cao'` | `'rootBaaaa'` |
+| địa chỉ `'my-drive'` | `'rootCaaaa'` |
+| địa chỉ `'test-run/Sub'` | `'subAaaaaa'` |
+| `buildTools({ getClient: () => null, folders: FOLDERS_RW })` | `buildTools({ getClient: () => null, mode: 'readwrite' })` |
+
+   Thêm `capabilities: RW` vào `SUB.subAaaaaa`.
+
+4. Xoá 4 test:
+   - `drive_ls folder rỗng danh sách → NO_FOLDERS…`
+   - `drive_read xlsx: đọc tab, TSV; ngoài phạm vi → OUT_OF_SCOPE`
+   - `drive_move: không đổi tên/di chuyển folder gốc trong danh sách`
+   - `folder rỗng: báo NO_FOLDERS trước khi dựng client…`
+
+5. Thay các test tương ứng (hoặc thêm mới) bằng các test sau:
 
 ```js
 test('tool ghi có ở readwrite, ẩn ở readonly; schema gọn', () => {
@@ -706,34 +353,32 @@ test('tool ghi có ở readwrite, ẩn ở readonly; schema gọn', () => {
   assert.ok(Math.ceil(bytes / 3.5) < 700, `schema ≈ ${Math.ceil(bytes / 3.5)} token`);
 });
 
-test('drive_ls không path: liệt kê gốc được share; có path: nội dung folder, nhãn theo canEdit', async () => {
+test('drive_ls: link folder → một dòng mỗi mục, nhãn theo canEdit; path bắt buộc; link file → gợi ý drive_read', async () => {
   const { byName } = tools();
-  assert.equal(await byName.get('drive_ls').run({}), '# 3 shared\nd Test Run (write) rootAaaaa\nd My Drive folder (write) rootCaaaa\nd Bao cao (read) rootBaaaa');
-  assert.equal(await byName.get('drive_ls').run({ query: 'bao' }), '# 1 shared\nd Bao cao (read) rootBaaaa');
-  assert.equal((await byName.get('drive_ls').run({ limit: 1, page: '1' })).split('\n')[0], '# 3 shared · next=2');
-  const out = await byName.get('drive_ls').run({ path: 'Test Run' });
+  const ls = byName.get('drive_ls');
+  assert.deepEqual(ls.inputSchema.required, ['path']);
+  const out = await ls.run({ path: 'https://drive.google.com/drive/folders/rootAaaaa' });
   assert.equal(out.split('\n')[0], '# Test Run (write) · 2');
   assert.ok(out.includes('s TC_login sheet1aaaa 2026-09-30'));
   assert.ok(out.includes('x report.xlsx book1aaaa 2KB'));
-  assert.equal((await byName.get('drive_ls').run({ path: 'Bao cao' })).split('\n')[0], '# Bao cao (read) · 1');
+  assert.equal((await ls.run({ path: 'rootBaaaa' })).split('\n')[0], '# Bao cao (read) · 1');
+  await assert.rejects(ls.run({ path: 'sheet1aaaa' }), (e) => e.code === 'NOT_FOUND' && /drive_read/.test(e.message));
 });
 
-test('drive_ls readonly: tiêu đề gợi ý bật ghi, mọi nhãn read', async () => {
+test('drive_ls readonly: folder Editor vẫn hiện (read)', async () => {
   const { byName } = tools('readonly');
-  const out = await byName.get('drive_ls').run({});
-  assert.match(out.split('\n')[0], /readonly — bật ghi: gdrive init --mode readwrite --yes/);
-  assert.doesNotMatch(out, /\(write\)/);
+  assert.equal((await byName.get('drive_ls').run({ path: 'rootAaaaa' })).split('\n')[0], '# Test Run (read) · 2');
 });
 
-test('drive_read xlsx qua tên-gốc/đường/dẫn; file không share → lỗi 404', async () => {
+test('drive_read xlsx bằng id; link không share → lỗi 404 nguyên vẹn', async () => {
   const { byName } = tools();
-  const out = await byName.get('drive_read').run({ target: 'Test Run/report.xlsx' });
+  const out = await byName.get('drive_read').run({ target: 'book1aaaa' });
   assert.equal(out.split('\n')[0], '# report.xlsx › Data · tabs: Data · rows 1-1/1');
   assert.equal(out.split('\n')[2], '42');
   await assert.rejects(byName.get('drive_read').run({ target: 'khongShare1' }), (e) => e.code === 404);
 });
 
-test('sheet_write: cells → 1 batchUpdate, append → 1 append không idempotent; file Viewer bị READ_ONLY, không gọi API ghi', async () => {
+test('sheet_write: cells → 1 batchUpdate, append → 1 append không idempotent; file Viewer → READ_ONLY, không gọi API ghi', async () => {
   const { byName, client } = tools();
   const out = await byName.get('sheet_write').run({ target: 'sheet1aaaa', cells: { L5: 'PASS', L6: 'FAIL' }, append: [['TC9', 'PASS', '']] });
   assert.equal(out, '✓ Sheet1: 2 cells, +1 rows');
@@ -741,38 +386,25 @@ test('sheet_write: cells → 1 batchUpdate, append → 1 append không idempoten
   assert.deepEqual(batch.body.data.map((d) => d.range), ["'Sheet1'!L5", "'Sheet1'!L6"]);
   const app = client.calls.find((c) => /:append/.test(c.url));
   assert.equal(app.idempotent, false);
-  const writesBefore = client.calls.filter((c) => /batchUpdate|:append/.test(c.url)).length;
+  const writes = () => client.calls.filter((c) => /batchUpdate|:append/.test(c.url)).length;
+  const before = writes();
   await assert.rejects(byName.get('sheet_write').run({ target: 'sheetBaaaa', cells: { A1: 'x' } }), (e) => e.code === 'READ_ONLY' && /Editor/.test(e.message));
-  assert.equal(client.calls.filter((c) => /batchUpdate|:append/.test(c.url)).length, writesBefore);
+  assert.equal(writes(), before);
   await assert.rejects(byName.get('sheet_write').run({ target: 'sheet1aaaa' }), /cells hoặc append/);
 });
 
-test('sheet_write qua đường dẫn: metadata lấy từ findChild vẫn có canEdit, ghi được', async () => {
-  const { byName } = tools();
-  assert.equal(await byName.get('sheet_write').run({ target: 'Test Run/TC_login', cells: { A1: 'x' } }), '✓ Sheet1: 1 cells, +0 rows');
-});
-
-test('drive_move: đổi tên và chuyển folder; đích không canAddChildren → READ_ONLY', async () => {
+test('drive_move: đổi tên và chuyển folder; đích không canAddChildren → READ_ONLY; file Viewer → READ_ONLY', async () => {
   const { byName, client } = tools();
-  const out = await byName.get('drive_move').run({ target: 'sheet1aaaa', new_name: 'TC_login_v2', to: 'Test Run' });
-  assert.match(out, /^✓ TC_login_v2 → Test Run/);
+  const out = await byName.get('drive_move').run({ target: 'sheet1aaaa', new_name: 'TC_login_v2', to: 'rootAaaaa' });
+  assert.equal(out, '✓ TC_login_v2 → Test Run');
   const patch = client.calls.find((c) => c.method === 'PATCH');
   assert.match(patch.url, /addParents=rootAaaaa/);
   assert.doesNotMatch(patch.url, /removeParents=/, 'chuyển vào chính folder hiện tại: không gỡ parent nào');
   assert.equal(client.gets.get('sheet1aaaa'), 2, 'parents lấy lại từ Drive, không dùng cache');
-  await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa', to: 'Bao cao' }), (e) => e.code === 'READ_ONLY');
+  await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa', to: 'rootBaaaa' }), (e) => e.code === 'READ_ONLY');
   await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa', to: 'sheetBaaaa' }), /không phải folder/);
   await assert.rejects(byName.get('drive_move').run({ target: 'sheetBaaaa', new_name: 'y' }), (e) => e.code === 'READ_ONLY');
   await assert.rejects(byName.get('drive_move').run({ target: 'sheet1aaaa' }), /new_name hoặc to/);
-});
-
-test('drive_create làm mới danh sách gốc (cache gốc bị xoá)', async () => {
-  const { byName, client } = tools();
-  await byName.get('drive_ls').run({});
-  const listsBefore = client.calls.filter((c) => /sharedWithMe/.test(decodeURIComponent(c.url.replace(/\+/g, ' ')))).length;
-  await byName.get('drive_create').run({ parent: 'Test Run', name: 'Q4', kind: 'folder' });
-  await byName.get('drive_ls').run({});
-  assert.equal(client.calls.filter((c) => /sharedWithMe/.test(decodeURIComponent(c.url.replace(/\+/g, ' ')))).length, listsBefore + 1);
 });
 
 test('shortcut trong folder ghi được trỏ tới file Viewer: sheet_write và drive_move đều READ_ONLY', async () => {
@@ -780,48 +412,40 @@ test('shortcut trong folder ghi được trỏ tới file Viewer: sheet_write v�
   const { byName, client } = tools('readwrite', fakeClient({ extra }));
   await assert.rejects(byName.get('sheet_write').run({ target: 'shortRWaa', cells: { A1: 'x' } }), (e) => e.code === 'READ_ONLY');
   await assert.rejects(byName.get('drive_move').run({ target: 'shortRWaa', new_name: 'y' }), (e) => e.code === 'READ_ONLY');
-  await assert.rejects(byName.get('drive_move').run({ target: 'shortRWaa', to: 'Test Run' }), (e) => e.code === 'READ_ONLY');
+  await assert.rejects(byName.get('drive_move').run({ target: 'shortRWaa', to: 'rootAaaaa' }), (e) => e.code === 'READ_ONLY');
   assert.equal(client.calls.some((c) => c.method === 'PATCH' || /batchUpdate|:append/.test(c.url)), false);
 });
 ```
 
-Trong test `drive_create: folder/doc/sheet …`, đổi lời gọi folder chỉ đọc thành `parent: 'Bao cao'`; câu kiểm `READ_ONLY` giữ nguyên.
+6. Trong hai test `drive_move` dùng `SUB`, đổi regex `/^✓ TC_login → test-run\/…\/Sub/` thành `/^✓ TC_login → Sub/`.
 
-Xoá hẳn 3 test không còn ý nghĩa:
-- `drive_ls folder rỗng danh sách → NO_FOLDERS…`
-- `drive_move: không đổi tên/di chuyển folder gốc trong danh sách`
-- `folder rỗng: báo NO_FOLDERS trước khi dựng client…`
-
-Test `drive_read xlsx: … OUT_OF_SCOPE` cũ được thay bằng test `drive_read xlsx qua tên-gốc/đường/dẫn…` ở trên.
-
-Test `không tool nào có tham số đường dẫn trên máy`: đổi `folders: FOLDERS_RW` thành `mode: 'readwrite'`.
-
-Trong 2 test `drive_move` dùng `SUB`, đổi `to: 'test-run/Sub'` thành `to: 'Test Run/Sub'` và regex `/^✓ TC_login → test-run\/…\/Sub/` thành `/^✓ TC_login → Sub/`. Thêm `capabilities: RW` vào `SUB.subAaaaaa`.
+7. Test `drive_create: folder/doc/sheet …`: sau khi thay địa chỉ ở mục 3, câu kiểm `READ_ONLY` cho `parent: 'rootBaaaa'` giữ nguyên.
 
 - [ ] **Step 2: Chạy test, xác nhận hỏng**
 
-Run: `node --test test/tools.test.mjs`
-Expected: FAIL. `buildTools` còn đọc `folders`: `folders.length` của `undefined` ném TypeError, hoặc ra `NO_FOLDERS`.
+Run: `node --test test/render.test.mjs test/tools.test.mjs`
+Expected: FAIL. `buildTools` vẫn đọc `folders.length` khi `folders` là `undefined` nên ném TypeError, và test `AccessError` của render hỏng.
 
 - [ ] **Step 3: Cài đặt**
 
-Thay `src/tools.mjs`:
+`src/render.mjs`:
+- Xoá hàm `renderFolders`.
+- Trong `renderError`, thay `if (err?.name === 'ScopeError') return \`✗ ${msg}\`;` bằng `if (err?.name === 'AccessError') return \`✗ ${msg}\`;`.
+
+`src/tools.mjs`:
 - Comment đầu file:
 
 ```js
-// Năm tool MCP, trả VĂN BẢN THUẦN (không bọc JSON) để tiết kiệm token. Quyền theo share trên
-// Drive (access.mjs): service account mở được thì đọc được, là Editor thì ghi được. Không tool
-// nào đụng tới hệ thống file của máy.
+// Năm tool MCP, trả VĂN BẢN THUẦN (không bọc JSON) để tiết kiệm token. Người dùng gửi link,
+// tool mở thẳng link đó; quyền theo share trên Drive (access.mjs): Editor ghi được, Viewer chỉ
+// đọc. Không tool nào đụng tới hệ thống file của máy.
 ```
 
-- Import: bỏ `createScope, NO_FOLDERS_MESSAGE, ScopeError` và `renderFolders`, thêm:
-
-```js
-import { AccessError, createAccess } from './access.mjs';
-import { renderDoc, renderLs, renderRoots, renderTable } from './render.mjs';
-```
-
-- Thay phần đầu `buildTools` (tới hết `const hasWrite = …`) bằng:
+- Import:
+  - bỏ dòng `scope.mjs` và `renderFolders`;
+  - thêm `import { AccessError, createAccess } from './access.mjs';`.
+- `const target = { type: 'string', description: 'Google URL or id.' };`
+- Thay phần đầu `buildTools`, tới hết `const hasWrite = …;`, bằng:
 
 ```js
 /**
@@ -835,7 +459,7 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
   const ctx = () => {
     const client = getClient();
     meta ??= createMetaStore({ client, now });
-    access ??= createAccess({ client, meta, mode, now });
+    access ??= createAccess({ meta, mode });
     return { client, meta, access };
   };
 ```
@@ -843,14 +467,20 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
 - `drive_ls`:
 
 ```js
-      description: 'List what is shared with the service account (no path) or a folder\'s contents.',
-      // inputSchema giữ nguyên
+      description: 'List a folder\'s contents (folder URL or id), one line per item.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { ...target, description: 'Folder URL or id.' },
+          query: { type: 'string', description: 'Name contains.' },
+          limit: { type: 'integer', description: 'Default 30, max 200.' },
+          page: { type: 'string', description: 'next token.' },
+        },
+        required: ['path'],
+        additionalProperties: false,
+      },
       async run(args) {
         const { client, access } = ctx();
-        if (!args.path) {
-          const res = await access.roots({ query: args.query ?? null, limit: args.limit ?? 30, offset: Number(args.page) || 0 });
-          return renderRoots({ ...res, mode });
-        }
         const { fileId, meta: m } = await access.resolve(args.path);
         if (m.mimeType !== MIME.FOLDER) throw new AccessError('NOT_FOUND', `"${m.name}" không phải folder. Dùng drive_read để đọc.`);
         const max = Math.min(Math.max(Number(args.limit) || 30, 1), 200);
@@ -859,11 +489,11 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
       },
 ```
 
-- `drive_read.run`: đổi `c.scope.resolve` thành `c.access.resolve`. Phần còn lại giữ nguyên.
+- `drive_read.run`: đổi `c.scope.resolve` thành `c.access.resolve`.
 
 - `sheet_write`:
   - description: `'Write cells {"L5":"PASS"} and/or append rows to a Google Sheet (needs Editor).'`
-  - Trong `run`, thay 2 dòng resolve và assertWrite bằng:
+  - Trong `run`, thay 3 dòng dựng ctx, resolve và assertWrite bằng:
 
 ```js
         const { client, meta, access } = ctx();
@@ -872,8 +502,8 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
 ```
 
 - `drive_create`:
-  - description: `'Create a folder, Google Doc (markdown) or Google Sheet (CSV/TSV) in a folder you can edit.'`
-  - Trong `run`:
+  - description: `'Create a folder, Google Doc (markdown) or Google Sheet (CSV/TSV) in a folder (needs Editor).'`
+  - Trong `run`, thay các dòng dựng ctx, resolve, assertWrite và kiểm folder bằng:
 
 ```js
         const { client, meta, access } = ctx();
@@ -882,11 +512,11 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
         access.assertCanAddChildren(pm);
 ```
 
-  - Thay `scope.invalidateAll();` bằng `access.invalidate();`.
+  - Xoá dòng `scope.invalidateAll();`, giữ `meta.invalidate(parentId);`.
 
 - `drive_move`:
   - description: `'Rename a file and/or move it to another folder (needs Editor).'`
-  - `to: { ...target, description: 'Destination folder.' }`
+  - `to: { ...target, description: 'Destination folder URL or id.' }`
   - `run`:
 
 ```js
@@ -911,52 +541,57 @@ export function buildTools({ getClient, mode = 'readwrite', now = Date.now }) {
           removeParents = fresh.parents.filter((p) => p !== dest.fileId).join(',') || null;
         }
         await updateFile(client, fileId, { name: args.new_name ?? null, addParents: dest?.fileId ?? null, removeParents });
-        access.invalidate();
         meta.invalidate(fileId);
         return `✓ ${args.new_name ?? m.name}${dest ? ` → ${dest.meta.name}` : ''}`;
       },
 ```
 
-- Dòng cuối:
-
-```js
-  return mode === 'readwrite' ? all : all.filter((t) => !t.write);
-```
+- Dòng cuối của `buildTools`: `return mode === 'readwrite' ? all : all.filter((t) => !t.write);`
 
 - [ ] **Step 4: Chạy test, xác nhận qua**
 
-Run: `node --test test/tools.test.mjs test/access.test.mjs`
+Run: `node --test test/access.test.mjs test/render.test.mjs test/tools.test.mjs`
 Expected: PASS. Nếu test schema báo vượt 700 token thì rút ngắn description, không sửa ngưỡng.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/tools.mjs test/tools.test.mjs
-git commit -m "feat(tools): 5 tool theo quyền share, buildTools({ mode })
+git add src/render.mjs src/tools.mjs test/render.test.mjs test/tools.test.mjs
+git commit -m "feat(tools): 5 tool mở thẳng link, quyền theo share; buildTools({ mode })
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 5: MCP server theo `mode`, `instructions`
+### Task 3: MCP server theo `mode`; `instructions`
 
 **Files:**
-- Modify: `server/index.mjs` (dòng 27 import; `buildState` dòng 82–114; `refreshStateIfChanged`)
+- Modify: `server/index.mjs`
+  - import ở dòng 27;
+  - `buildState` (dòng 82–114);
+  - `refreshStateIfChanged`;
+  - mọi chỗ dùng `folderError`.
 - Modify: `src/instructions.mjs`
 - Test: `test/mcp-server.test.mjs`
 
 **Interfaces:**
-- Consumes: `buildTools({ getClient, mode })` (Task 4), `modeFromConfig` (Task 2).
-- Produces: state có `mode` thay cho `folders/hasWrite/folderError`; đổi `mode` thì server gửi `notifications/tools/list_changed`.
+- Consumes:
+  - `buildTools({ getClient, mode })` (Task 2);
+  - `modeFromConfig` (Task 1).
+- Produces:
+  - state của server có `mode` thay cho `folders`, `hasWrite`, `folderError`;
+  - khi `mode` đổi, server gửi `notifications/tools/list_changed`.
 
 - [ ] **Step 1: Viết lại test**
 
-Trong `test/mcp-server.test.mjs`:
+Các chỗ cần sửa trong `test/mcp-server.test.mjs`:
 
-1. Test `server đọc config ở thư mục trung lập…`: bỏ dòng `folders: [...]` (config chỉ còn `clientEmail`, `privateKey`). Thông báo assert đổi thành `'config không có mode → readwrite, phải có tool ghi'`.
+1. Test `server đọc config ở thư mục trung lập…`:
+   - bỏ dòng `folders: [...]`, config chỉ còn `clientEmail` và `privateKey`;
+   - đổi thông điệp assert thành `'config không có mode → readwrite, phải có tool ghi'`.
 
-2. Test `mặc định (chưa có folder write)…` đổi thành:
+2. Thay test `mặc định (chưa có folder write)…` bằng:
 
 ```js
 test('không có config: readonly, KHÔNG lộ tool ghi', async () => {
@@ -965,7 +600,7 @@ test('không có config: readonly, KHÔNG lộ tool ghi', async () => {
   assert.deepEqual(names, ['drive_ls', 'drive_read'], 'model không được thấy tool ghi');
 });
 
-test('config v0.4.0 còn mode readonly + folders: chạy bình thường, bỏ qua folders, chỉ 2 tool', async () => {
+test('config v0.4.0 còn mode readonly + folders, có GDRIVE_FOLDERS: chạy bình thường, bỏ qua cả hai, chỉ 2 tool', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
   writeConfig(home, { mode: 'readonly', folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }] });
   const { msgs, code } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/list' }], { home, env: { GDRIVE_FOLDERS: 'ci=f2aaaaaaaa:write' } });
@@ -974,15 +609,21 @@ test('config v0.4.0 còn mode readonly + folders: chạy bình thường, bỏ q
 });
 ```
 
-3. Test `lỗi của tool trả về isError…`: đổi `writeConfig(home, { folders: [...] })` thành `writeConfig(home, { mode: 'readonly' })`. Input `target: 'x'` không có `/`, không giống id nên sẽ đi nhánh tên gốc, và việc đó cần mạng. Đổi input thành `target: 'https://example.com/x'`. Đầu vào có `:` nên `parseGoogleUrl` ném lỗi ngay. Đổi regex assert thành `/Không tách được file id/`.
+3. Test `lỗi của tool trả về isError…`:
+   - thay `writeConfig(home, { folders: [...] })` bằng `writeConfig(home, { mode: 'readonly' })`;
+   - `target: 'x'` và regex `/không phải URL Google hợp lệ/` giữ nguyên: `parseGoogleUrl` ném lỗi trước khi gọi mạng.
 
-4. Test `config đổi folder read → write…` đổi tên thành `'config đổi mode readonly → readwrite: ping bắn list_changed, tools/list có tool ghi'`. Lần ghi đầu là `writeConfig(home, { mode: 'readonly' })`, lần sau là `writeConfig(home, { mode: 'readwrite' })`.
+4. Test `config đổi folder read → write…`:
+   - đổi tên thành `'config đổi mode readonly → readwrite: ping bắn list_changed, tools/list có tool ghi'`;
+   - lần ghi đầu dùng `writeConfig(home, { mode: 'readonly' })`, lần sau dùng `writeConfig(home, { mode: 'readwrite' })`.
 
-5. Test `config đổi credential nhưng folder vẫn read…` đổi tên thành `'config đổi credential nhưng mode vẫn readonly: không bắn list_changed…'`. Hai lần ghi là `{ mode: 'readonly', clientEmail: 'old-sa@…' }` rồi `{ mode: 'readonly', clientEmail: 'rotated-sa@…' }`.
+5. Test `config đổi credential nhưng folder vẫn read…`:
+   - đổi tên thành `'config đổi credential nhưng mode vẫn readonly: không bắn list_changed và tools/list vẫn không có tool ghi'`;
+   - hai lần ghi lần lượt là `{ mode: 'readonly', clientEmail: 'old-sa@proj.iam.gserviceaccount.com' }` và `{ mode: 'readonly', clientEmail: 'rotated-sa@proj.iam.gserviceaccount.com' }`.
 
 6. Xoá test `config đổi danh sách folder: scope dựng lại…` và test `config folders hỏng: server vẫn trả lời tools/list…`.
 
-7. Phần `buildTools (không qua tiến trình con)`: xoá `FOLDERS_W`, `FOLDERS_R`. Thay 3 test bằng:
+7. Phần `buildTools (không qua tiến trình con)`: xoá `FOLDERS_W` và `FOLDERS_R`, rồi thay 3 test bằng:
 
 ```js
 test('buildTools: readwrite mở đủ 5 tool, readonly còn 2', () => {
@@ -1002,15 +643,22 @@ test('buildTools: tool ghi được đánh dấu write=true', () => {
   const w = buildTools({ getClient: () => ({}), mode: 'readwrite' }).filter((t) => t.write).map((t) => t.name);
   assert.deepEqual(w.sort(), ['drive_create', 'drive_move', 'sheet_write']);
 });
+
+test('renderError: 404 của Drive → gợi ý share cho email service account', () => {
+  const e = Object.assign(new Error('File not found: abc'), { code: 404 });
+  assert.match(renderError(e, { email: 'sa@p.iam.gserviceaccount.com' }), /^✗ 404: chưa share cho sa@p\.iam\.gserviceaccount\.com \(Viewer để đọc, Editor để ghi\)/);
+});
 ```
 
-8. Test `tools/call trả văn bản thuần, lỗi phạm vi bắt đầu bằng ✗…` đổi thành:
+   Nếu đầu file chưa import `renderError` thì thêm `import { renderError } from '../src/render.mjs';`.
+
+8. Thay test `tools/call trả văn bản thuần, lỗi phạm vi bắt đầu bằng ✗…` bằng:
 
 ```js
-test('tools/call trả văn bản thuần, lỗi bắt đầu bằng ✗ và là isError', async () => {
+test('tools/call: lỗi bắt đầu bằng ✗, là isError, không bọc JSON', async () => {
   const home = mkdtempSync(join(tmpdir(), 'gdrive-mcp-home-'));
   writeConfig(home, { mode: 'readonly' });
-  const { msgs } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'drive_read', arguments: { target: 'https://example.com/x' } } }], { home });
+  const { msgs } = await talk([INIT, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'drive_read', arguments: { target: 'x' } } }], { home });
   const r = msgs.find((m) => m.id === 1).result;
   assert.equal(r.isError, true);
   assert.match(r.content[0].text, /^✗ /);
@@ -1018,33 +666,31 @@ test('tools/call trả văn bản thuần, lỗi bắt đầu bằng ✗ và là
 });
 ```
 
-9. Test `initialize trả instructions…`: thêm hai assert:
+9. Test `initialize trả instructions…`: thêm sau các assert có sẵn:
 
 ```js
-  assert.doesNotMatch(instructions, /folder add/);
+  assert.doesNotMatch(instructions, /folder add|alias/);
   assert.match(instructions, /Editor/);
 ```
-
-Biến chứa chuỗi instructions trong test đó có thể tên khác `instructions`; dùng đúng tên biến có sẵn.
 
 - [ ] **Step 2: Chạy test, xác nhận hỏng**
 
 Run: `node --test test/mcp-server.test.mjs`
-Expected: FAIL. Server vẫn dựng tool theo `folders`: config chỉ có `clientEmail` không ra tool ghi, và `mode` đổi không bắn `list_changed`.
+Expected: FAIL. Server vẫn dựng tool theo `folders`, nên config chỉ có `clientEmail` không có tool ghi, và đổi `mode` không bắn `list_changed`.
 
 - [ ] **Step 3: Cài đặt**
 
 `server/index.mjs`:
-- Dòng 27: thay `const { loadFolders } = await import('../src/folders.mjs');` bằng `const { modeFromConfig } = await import('../src/access.mjs');`.
-- Thay `buildState`:
+- Dòng 27: `const { modeFromConfig } = await import('../src/access.mjs');`
+- Thay `buildState` bằng:
 
 ```js
 function buildState() {
   const cfgWithSource = readConfigWithSource();
   const mode = modeFromConfig(cfgWithSource?.config ?? null);
   const fingerprint = fingerprintForConfigs();
-  // State mới = tools mới = cache metadata và danh sách gốc mới: đổi config (fingerprint đổi)
-  // thì dựng lại toàn bộ ở đây, vì credential có thể đã đổi sang service account khác.
+  // Đổi config (fingerprint đổi) thì dựng lại tools và cache metadata: credential có thể đã
+  // đổi sang service account khác, quyền cũ trong cache không còn đúng.
   const next = {
     mode,
     client: null,
@@ -1068,7 +714,8 @@ function buildState() {
 ```
 
 - Trong `refreshStateIfChanged`: `const toolsChanged = next.mode !== state.mode;`
-- Tìm mọi chỗ còn dùng `state.folderError` hoặc `snapshot.folderError` (thường trong nhánh `tools/call`, chỗ ném lỗi cấu hình folder) và xoá nhánh đó. Kiểm bằng `grep -n "folderError\|folders\|hasWrite" server/index.mjs`; kết quả phải rỗng.
+- Xoá mọi nhánh dùng `folderError`.
+- Kiểm bằng `grep -n "folderError\|folders\|hasWrite\|loadFolders" server/index.mjs`, kết quả phải rỗng.
 
 `src/instructions.mjs`:
 
@@ -1076,19 +723,19 @@ function buildState() {
 // Hướng dẫn gửi kèm `initialize` (trường MCP `instructions`). Ngắn và trung lập cho mọi
 // client; bản đầy đủ nằm ở skills/gdrive/SKILL.md.
 
-export const INSTRUCTIONS = `Google Drive via a service account. It sees what was shared with its email: Editor = read/write, Viewer = read only. Call drive_ls with no args first to see what is shared and the access of each item.
+export const INSTRUCTIONS = `Google Drive via a service account. Pass the Google URL (or id) the user gives straight to a tool; it may be a file or a folder. Access follows Drive sharing: Editor = read/write, Viewer = read only.
 
-Tools: drive_ls (shared items / folder contents), drive_read (any file: sheets as TSV with columns/where/offset/limit, docs as markdown), sheet_write (cells and/or append rows), drive_create (folder/doc/sheet), drive_move (rename/move). Write tools are hidden in readonly mode.
+Tools: drive_ls (folder contents), drive_read (any file: sheets as TSV with columns/where/offset/limit, docs as markdown), sheet_write (cells and/or append rows), drive_create (folder/doc/sheet), drive_move (rename/move). Write tools are hidden in readonly mode.
 
-Targets accept a Google URL, an id, or name/path/file starting from a shared item name (e.g. gdriver/reports/KPI). Read big sheets in pages: follow next=<offset> in the first line. Prefer columns/where over reading everything.
+Read big sheets in pages: follow next=<offset> in the first line. Prefer columns/where over reading everything.
 
-Errors start with ✗. 404 or 403 means the file is not shared with the service account email shown: ask the user to share it (Viewer to read, Editor to write). "Chỉ đọc" means the service account is not Editor there. Never ask the user to paste key file contents.`;
+Errors start with ✗. 404 or 403 means it is not shared with the service account email shown: ask the user to share it (Viewer to read, Editor to write). "Chỉ đọc" means the service account is not Editor there. Never ask the user to paste key file contents.`;
 ```
 
 - [ ] **Step 4: Chạy test, xác nhận qua**
 
-Run: `node --test test/mcp-server.test.mjs test/tools.test.mjs`
-Expected: PASS. Test `instructions` vẫn kiểm giới hạn dưới 1,5 KB (`Buffer.byteLength`); chuỗi trên khoảng 1,1 KB.
+Run: `node --test test/mcp-server.test.mjs test/tools.test.mjs test/access.test.mjs`
+Expected: PASS. Test `instructions` vẫn kiểm giới hạn dưới 1,5 KB; chuỗi trên khoảng 1 KB.
 
 - [ ] **Step 5: Commit**
 
@@ -1101,28 +748,32 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: CLI, `status`, `init`; xoá module folder; bench
+### Task 4: CLI, `status`, `init`; xoá module folder; bench
 
 **Files:**
-- Modify: `src/cli-scope.mjs` (toàn file)
-- Modify: `bin/cli.mjs`:
-  - dòng 12, 23, 24 (import);
-  - dòng 81–88 (HELP);
-  - dòng 142–157 (`cliFolders`, `clientFor`, `scopedTarget`);
-  - `cmdLs` (dòng ~252–285), `cmdPut` (dòng ~326), `case 'folder'` (dòng 417).
-- Modify: `src/status.mjs` (import dòng 19, 21; khối 1a dòng 84–98; khối gọi thật dòng ~142–165)
+- Modify: `src/cli-scope.mjs` (cả file)
+- Modify: `bin/cli.mjs`
+  - import ở dòng 12, 23, 24;
+  - HELP ở dòng 81–88;
+  - dòng 142–157;
+  - `cmdLs` (khoảng dòng 252–285);
+  - `case 'folder'` ở dòng 417.
+- Modify: `src/status.mjs`
+  - import ở dòng 19, 21;
+  - khối 1a (dòng 84–98);
+  - khối gọi thật (khoảng dòng 142–150).
 - Modify: `src/init.mjs` (dòng 125–138)
 - Modify: `bench/tokens.mjs:21-24`
 - Delete: `src/folders.mjs`, `src/folder-cli.mjs`, `src/scope.mjs`, `test/folders.test.mjs`, `test/folder-cli.test.mjs`, `test/scope.test.mjs`
-- Test: `test/cli-scope.test.mjs` (viết lại), `test/install.test.mjs`, `test/credentials.test.mjs`, `test/mcp-server.test.mjs` (thêm test CLI)
+- Test: `test/cli-scope.test.mjs` (viết lại), `test/install.test.mjs`, `test/credentials.test.mjs`, `test/mcp-server.test.mjs`
 
 **Interfaces:**
-- Consumes: `modeFromConfig`, `createAccess` (Task 2); `renderRoots` (Task 3); `createMetaStore`.
-- Produces: `resolveCliMode({ flags = {}, cfg = null, needWrite = false }) → 'readonly'|'readwrite'` (ném lỗi `exitCode = 3` khi cần ghi mà đang readonly).
+- Consumes: `modeFromConfig`, `READONLY_HINT` (Task 1).
+- Produces: `resolveCliMode({ flags = {}, cfg = null, needWrite = false }) → 'readonly'|'readwrite'`. Nếu cần ghi mà đang `readonly` thì ném lỗi có `exitCode = 3`.
 
 - [ ] **Step 1: Viết test hỏng**
 
-Thay toàn bộ `test/cli-scope.test.mjs`:
+Thay toàn bộ `test/cli-scope.test.mjs` bằng:
 
 ```js
 import assert from 'node:assert/strict';
@@ -1143,14 +794,14 @@ test('resolveCliMode: theo modeFromConfig; --mode ghi đè; cần ghi mà readon
 });
 ```
 
-Trong `test/install.test.mjs`, thay test `init: chạy lại với key khác / --adc giữ nguyên folders…` bằng:
+`test/install.test.mjs`: thay test `init: chạy lại với key khác / --adc giữ nguyên folders…` bằng test dưới đây. `baseFlags` ở dòng 50 có `mode: 'readonly'` và các test cũ dựa vào đó, nên giữ nguyên `baseFlags`; test mới bỏ khoá này bằng destructuring.
 
 ```js
-test('init: mặc định readwrite; xoá khoá folders cũ, giữ khoá khác; --mode readonly vẫn chọn được', async () => {
+test('init: mặc định readwrite; xoá khoá folders cũ, giữ khoá khác; readonly vẫn chọn được và được giữ', async () => {
   await sandbox(async ({ home, keyFile, env }) => {
     const logs = [];
     const log = (l) => logs.push(l);
-    const { mode: _ignored, ...noMode } = baseFlags(keyFile); // baseFlags có mode: 'readonly'
+    const { mode: _ignored, ...noMode } = baseFlags(keyFile);
     await runInit(noMode, { home, log, env });
     assert.equal(readConfig(home, env).mode, 'readwrite');
     assert.doesNotMatch(logs.join('\n'), /folder add/);
@@ -1163,6 +814,7 @@ test('init: mặc định readwrite; xoá khoá folders cũ, giữ khoá khác; 
     assert.equal(cfg.folders, undefined, 'folders không còn dùng → xoá');
     assert.equal(cfg.extra, 'giữ');
     assert.equal(cfg.clientEmail, 'other-sa@proj-test.iam.gserviceaccount.com');
+    assert.equal(cfg.mode, 'readwrite');
 
     await runInit({ yes: true, mode: 'readonly', 'no-test': true }, { home, log, env });
     assert.equal(readConfig(home, env).mode, 'readonly');
@@ -1177,12 +829,10 @@ test('init: mặc định readwrite; xoá khoá folders cũ, giữ khoá khác; 
 });
 ```
 
-`baseFlags` (dòng 50 của `test/install.test.mjs`) giữ nguyên `mode: 'readonly'`: các test cũ dựa vào nó. Test mới bỏ khoá đó bằng destructuring như trên.
-
-Trong `test/credentials.test.mjs`, thay test `status: liệt kê folder được phép…` bằng:
+`test/credentials.test.mjs`: thay test `status: liệt kê folder được phép…` bằng:
 
 ```js
-test('status: không còn mục folder; khoá folders cũ được nhắc là bỏ được; readonly có gợi ý bật ghi', async () => {
+test('status: không còn mục folder; khoá folders cũ được nhắc; readonly có gợi ý bật ghi', async () => {
   await sandbox(async ({ home }) => {
     writeLegacyConfig(home, { mode: 'readonly', folders: [{ id: 'f1aaaaaaaa', name: 'run', access: 'write' }] });
     const logs = [];
@@ -1195,7 +845,7 @@ test('status: không còn mục folder; khoá folders cũ được nhắc là b�
 });
 ```
 
-Thêm vào `test/mcp-server.test.mjs`, sau test `CLI write: lỗi --set…`:
+`test/mcp-server.test.mjs`: thêm test sau, đặt ngay sau test `CLI write: lỗi --set…`:
 
 ```js
 test('CLI folder: đã bỏ, in hướng dẫn và thoát mã 2', () => {
@@ -1203,7 +853,7 @@ test('CLI folder: đã bỏ, in hướng dẫn và thoát mã 2', () => {
   try {
     const r = spawnSync(process.execPath, [CLI, 'folder', 'add', 'abcdefghij'], { env: sandboxEnv(home), encoding: 'utf8' });
     assert.equal(r.status, 2, r.stderr);
-    assert.match(r.stderr, /Lệnh "folder" đã bỏ ở v0\.5\.0: quyền lấy theo share trên Drive\. Xem gdrive ls\./);
+    assert.match(r.stderr, /Lệnh "folder" đã bỏ ở v0\.5\.0: quyền lấy theo share trên Drive\./);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -1213,22 +863,22 @@ test('CLI folder: đã bỏ, in hướng dẫn và thoát mã 2', () => {
 - [ ] **Step 2: Chạy test, xác nhận hỏng**
 
 Run: `node --test test/cli-scope.test.mjs test/install.test.mjs test/credentials.test.mjs test/mcp-server.test.mjs`
-Expected: FAIL ở các test mới. `resolveCliMode` còn đọc `folders`; `init` mặc định `readonly`; `status` in mục folder; `folder` vẫn chạy.
+Expected: FAIL ở các test mới.
 
 - [ ] **Step 3: Cài đặt**
 
-Thay `src/cli-scope.mjs`:
+Thay `src/cli-scope.mjs` bằng:
 
 ```js
 // Chế độ ghi cho các lệnh CLI. Quyền trên từng file do Drive quyết định (share Editor/Viewer);
-// ở đây chỉ còn khoá `mode` trong config hoặc cờ --mode cho một lần chạy.
+// ở đây chỉ còn khoá `mode` trong config, hoặc cờ --mode cho một lần chạy.
 
 import { modeFromConfig, READONLY_HINT } from './access.mjs';
 
 export function resolveCliMode({ flags = {}, cfg = null, needWrite = false }) {
   const mode = flags.mode ?? modeFromConfig(cfg);
   if (needWrite && mode !== 'readwrite') {
-    const e = new Error(`Đang ở chế độ readonly nên lệnh này bị từ chối. ${READONLY_HINT}   (hoặc thêm --mode readwrite cho lần chạy này)`);
+    const e = new Error(`Đang ở chế độ readonly nên lệnh này bị từ chối. ${READONLY_HINT} (hoặc thêm --mode readwrite cho lần chạy này)`);
     e.exitCode = 3;
     throw e;
   }
@@ -1239,15 +889,9 @@ export function resolveCliMode({ flags = {}, cfg = null, needWrite = false }) {
 `bin/cli.mjs`:
 - Dòng 12: `import { resolveCliMode } from '../src/cli-scope.mjs';`
 - Xoá dòng 23 và 24 (`runFolder`, `loadFolders`).
-- Thêm import:
-
-```js
-import { createAccess } from '../src/access.mjs';
-import { createMetaStore } from '../src/meta.mjs';
-```
-
-- Trong import từ `../src/render.mjs`, thay `renderFolders` bằng `renderRoots`.
-- HELP: xoá 3 dòng `gdrive folder …` (dòng 86–88). Sửa dòng mô tả `gdrive ls` để không còn nhắc folder được phép: `gdrive ls [url-folder]  Không có url: liệt kê mọi thứ đã share cho service account.`
+- Bỏ `renderFolders` khỏi import từ `../src/render.mjs`. Nếu dòng import đó không còn tên nào thì xoá cả dòng.
+- Thêm `import { parseGoogleUrl } from '../src/url.mjs';` nếu chưa có.
+- HELP: xoá 3 dòng `gdrive folder …` (dòng 86–88).
 - Thay dòng 142–157 bằng:
 
 ```js
@@ -1256,69 +900,50 @@ function clientFor(flags, { needWrite = false } = {}) {
   return createClient({ mode, retries: 2 });
 }
 
-/** CLI nhận URL hoặc id; quyền do Drive quyết định. */
+/** CLI nhận URL hoặc id; quyền do Drive quyết định. Giữ tên cũ để không sửa chỗ gọi. */
 async function scopedTarget(_client, input) {
   return parseGoogleUrl(input);
 }
 ```
 
-  (Giữ tên `scopedTarget` để không phải sửa mọi chỗ gọi. Nếu `parseGoogleUrl` chưa được import trong `bin/cli.mjs` thì thêm `import { parseGoogleUrl } from '../src/url.mjs';`.)
-- Trong `cmdLs`, thay đoạn từ `const folders = cliFolders();` tới hết khối `if (listTarget.roots) { … }` và `const { folderId } = listTarget;` bằng:
+- `cmdLs`: thay đoạn từ `const folders = cliFolders();` tới hết `const { folderId } = listTarget;` bằng đoạn dưới. Phần `listFiles` và in kết quả phía dưới giữ nguyên. Khi `folderId = null`, lệnh liệt kê mọi thứ service account thấy, như trước v0.4.0.
 
 ```js
   const client = clientFor(flags);
-  if (!target) {
-    const access = createAccess({ client, meta: createMetaStore({ client }), mode: resolveCliMode({ flags, cfg: readConfig() }) });
-    const res = await access.roots({ query: flags['name-contains'] ?? null, limit: Number(flags.max ?? 200) });
-    if (flags.json) json({ roots: res.items });
-    else out(renderRoots({ ...res, mode: access.mode }));
-    return true;
-  }
-  const folderId = parseGoogleUrl(target).id;
+  const folderId = target ? parseGoogleUrl(target).id : null;
 ```
 
-- `cmdPut`: `(await scopedTarget(client, flags.folder, { write: true })).id` vẫn chạy được với `scopedTarget` mới; không sửa.
 - Dòng 417: thay `case 'folder': return runFolder(flags);` bằng:
 
 ```js
     case 'folder': {
-      const e = new Error('Lệnh "folder" đã bỏ ở v0.5.0: quyền lấy theo share trên Drive. Xem gdrive ls.');
+      const e = new Error('Lệnh "folder" đã bỏ ở v0.5.0: quyền lấy theo share trên Drive.');
       e.exitCode = 2;
       throw e;
     }
 ```
 
-  Kiểm cách `main` in lỗi và đặt mã thoát: lỗi có `exitCode` phải ra stderr và `process.exit(e.exitCode)`, giống lỗi `--set` của `cmdWrite` đang làm. Nếu `main` làm khác thì theo đúng cách của `cmdWrite`.
+  Đọc hàm `main` để chắc lỗi có `exitCode` được in ra stderr rồi `process.exit(e.exitCode)`, giống lỗi `Thiếu --set` của `cmdWrite`. Nếu `main` xử lý khác thì làm theo cách của `main`.
 
 `src/status.mjs`:
-- Xoá import `loadFolders`, `NO_FOLDERS_MESSAGE`. Thêm `import { createAccess, modeFromConfig, READONLY_HINT } from './access.mjs';`.
-- Thay khối `// 1a. Danh sách folder được phép …` (từ comment tới hết `catch`) bằng:
+- Xoá import `loadFolders` và `NO_FOLDERS_MESSAGE`. Thêm `import { modeFromConfig, READONLY_HINT } from './access.mjs';`.
+- Thay khối `// 1a. Danh sách folder được phép…` (từ comment tới hết `catch`) bằng:
 
 ```js
-  // 1a. Khoá cũ của v0.4.0: không còn tác dụng.
+  // 1a. Khoá của v0.4.0, không còn tác dụng.
   if (cfg && Object.hasOwn(cfg, 'folders')) log(`${WARN} Khoá "folders" không còn dùng từ v0.5.0, có thể xoá.`);
 ```
 
-- Dòng `log(\`${OK} Chế độ: ${cfg.mode ?? 'readonly'}\`)` thay bằng:
+- Thay ``log(`${OK} Chế độ: ${cfg.mode ?? 'readonly'}`);`` bằng:
 
 ```js
     const effective = modeFromConfig(cfg);
     log(`${OK} Chế độ: ${effective}${effective === 'readonly' ? ` — ${READONLY_HINT}` : ''}`);
 ```
 
-- Khối gọi thật: thay `const mode = cfg?.mode ?? 'readonly';` bằng `const mode = modeFromConfig(cfg);`. Sau dòng `log(\`${OK} Token OK — danh tính: ${email}\`);` thêm:
+- Khối gọi thật: thay `const mode = cfg?.mode ?? 'readonly';` bằng `const mode = modeFromConfig(cfg);`.
 
-```js
-      try {
-        const { items, total } = await createAccess({ client, meta: null, mode }).roots({ limit: 200 });
-        const writable = items.filter((r) => r.access === 'write').length;
-        log(`${OK} Được share: ${total} mục, ghi được ${writable}`);
-      } catch (listErr) {
-        log(`${WARN} Không liệt kê được mục được share: ${String(listErr.message).split('\n')[0]}`);
-      }
-```
-
-`src/init.mjs` dòng 125–138:
+`src/init.mjs`, thay dòng 125–128 bằng:
 
 ```js
     const mode = (flags.mode ?? existing?.mode) === 'readonly' ? 'readonly' : 'readwrite';
@@ -1327,13 +952,13 @@ async function scopedTarget(_client, input) {
     const cfgFile = writeConfig({ ...keep, mode, useAdc, ...(credentials ?? {}) }, home, env);
 ```
 
-Giữ nguyên khối log Windows/chmod. Thay dòng log chế độ cùng 2 dòng `hasFolders` bằng:
+Giữ nguyên khối log Windows/chmod. Thay dòng log chế độ và 2 dòng `hasFolders` bằng:
 
 ```js
     log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi client AI' : ' — ghi được ở nơi service account là Editor'}`);
 ```
 
-`bench/tokens.mjs`, sửa dòng 21–24:
+`bench/tokens.mjs`, dòng 21–24:
 
 ```js
   const schema = JSON.stringify(
@@ -1350,84 +975,86 @@ git rm src/folders.mjs src/folder-cli.mjs src/scope.mjs test/folders.test.mjs te
 Kiểm không còn tham chiếu:
 
 ```bash
-grep -rn "folders\.mjs\|folder-cli\|scope\.mjs\|loadFolders\|renderFolders\|ScopeError\|NO_FOLDERS\|GDRIVE_FOLDERS" src bin server bench test
+grep -rn "folders\.mjs\|folder-cli\|scope\.mjs\|loadFolders\|renderFolders\|ScopeError\|NO_FOLDERS\|findChild\|cliFolders\|assertCliQueryAllowed\|resolveCliTarget\|resolveCliListTarget" src bin server bench test
 ```
 
-Expected: rỗng. Ngoại lệ được phép: chuỗi `GDRIVE_FOLDERS` trong test Task 5 (config v0.4.0 bị bỏ qua).
+Expected: không có kết quả nào.
 
 - [ ] **Step 4: Chạy toàn bộ test**
 
 Run: `node --test && node bench/tokens.mjs`
-Expected: toàn bộ PASS; bench in schema dưới 700 và thoát 0.
+Expected: PASS toàn bộ; bench in schema dưới 700 và thoát 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add -A src bin bench test
-git commit -m "feat(cli)!: bỏ lệnh folder; ls liệt kê mục được share; init mặc định readwrite
+git commit -m "feat(cli)!: bỏ lệnh folder và danh sách folder; init mặc định readwrite
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 7: Tài liệu và bump 0.5.0
+### Task 5: Tài liệu và bump 0.5.0
 
 **Files:**
 - Modify: `README.md`, `skills/gdrive/SKILL.md`, `skills/gdrive-setup/SKILL.md`, `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`
-- Modify version: `package.json`, `.claude-plugin/plugin.json`, `server/index.mjs` (`SERVER_INFO`), `version:` trong 2 file `SKILL.md`
+- Modify version:
+  - `package.json`;
+  - `.claude-plugin/plugin.json`;
+  - `server/index.mjs` (`SERVER_INFO`);
+  - dòng `version:` trong 2 file `SKILL.md`.
 - Test: `test/version.test.mjs`
 
 - [ ] **Step 1: Sửa test version**
 
-Trong `test/version.test.mjs`, đổi chuỗi phiên bản mong đợi `0.4.0` thành `0.5.0`.
+Trong `test/version.test.mjs`, đổi chuỗi mong đợi `0.4.0` thành `0.5.0`.
 
 Run: `node --test test/version.test.mjs`
-Expected: FAIL (các file còn 0.4.0).
+Expected: FAIL.
 
 - [ ] **Step 2: Bump 5 chỗ**
 
-Đổi `0.4.0` thành `0.5.0` trong:
-- `package.json` (`"version"`);
-- `.claude-plugin/plugin.json` (`"version"`);
-- `server/index.mjs` (`SERVER_INFO`);
-- dòng `version:` của `skills/gdrive/SKILL.md` và `skills/gdrive-setup/SKILL.md`.
+Đổi `0.4.0` thành `0.5.0` ở 5 chỗ:
+- `package.json`;
+- `.claude-plugin/plugin.json`;
+- `SERVER_INFO` trong `server/index.mjs`;
+- dòng `version:` của `skills/gdrive/SKILL.md`;
+- dòng `version:` của `skills/gdrive-setup/SKILL.md`.
 
 Run: `node --test test/version.test.mjs`
 Expected: PASS.
 
 - [ ] **Step 3: CHANGELOG**
 
-Thêm mục `## [0.5.0] - <ngày làm>` ngay dưới `## [Chưa phát hành]`:
+Thêm ngay dưới `## [Chưa phát hành]`:
 
 ```markdown
 ## [0.5.0] - YYYY-MM-DD
 
 ### Thay đổi phá tương thích
 
-- Bỏ danh sách folder. Quyền lấy theo share trên Drive: service account là Editor thì đọc và
-  ghi, Viewer thì chỉ đọc, không được share thì không thấy. Khoá `folders` và biến
-  `GDRIVE_FOLDERS` bị bỏ qua.
+- Bỏ danh sách folder. Chỉ cần gửi link. Quyền lấy theo share trên Drive:
+  - service account là Editor thì đọc và ghi;
+  - là Viewer thì chỉ đọc;
+  - chưa được share thì tool báo lại kèm email cần share.
+
+  Khoá `folders` và biến `GDRIVE_FOLDERS` bị bỏ qua.
 - Bỏ lệnh `gdrive folder`.
+- `drive_ls` cần link folder (tham số `path` bắt buộc). Bỏ địa chỉ dạng `alias/đường/dẫn`.
 - `gdrive init` mặc định `--mode readwrite`. Config cũ đang `readonly` giữ nguyên; bật ghi bằng
   `gdrive init --mode readwrite --yes`.
 
-### Thêm
-
-- `drive_ls` không tham số liệt kê Shared Drive và mọi thứ được share cho service account, kèm
-  nhãn `read`/`write`. `gdrive ls` không đích làm tương tự.
-- Địa chỉ `tên-mục-được-share/đường/dẫn` trong mọi tool.
-- `gdrive status` đếm số mục được share và số mục ghi được.
-
 ### Đổi
 
-- Tool ghi kiểm `capabilities.canEdit`/`canAddChildren` trước khi gọi API, báo lỗi "Chỉ đọc"
-  thay cho 403 thô.
-- Đọc file theo id không còn lần theo folder cha, nên bớt 1 đến vài request mỗi file mới.
+- Tool ghi kiểm `capabilities.canEdit`/`canAddChildren` (có sẵn trong metadata) trước khi gọi API,
+  nên báo "Chỉ đọc" thay vì để Drive trả 403 thô.
+- Mở file không còn lần theo folder cha, nên bớt 1 đến vài request cho mỗi file mới.
 - `gdrive ls --query` dùng lại được.
 ```
 
-Thay `YYYY-MM-DD` bằng ngày thật lúc commit. Cập nhật link cuối file:
+Thay `YYYY-MM-DD` bằng ngày commit, rồi cập nhật link cuối file:
 
 ```markdown
 [Chưa phát hành]: https://github.com/sdc-ren/gdrive-cli/compare/v0.5.0...develop
@@ -1436,41 +1063,55 @@ Thay `YYYY-MM-DD` bằng ngày thật lúc commit. Cập nhật link cuối file
 
 - [ ] **Step 4: README, SKILL, SECURITY, CONTRIBUTING**
 
-Tìm mọi chỗ cần sửa:
+Tìm các chỗ cần sửa:
 
 ```bash
 grep -n "folder add\|folder list\|folder set\|folder remove\|GDRIVE_FOLDERS\|\"folders\"\|alias\|folder được phép\|ngoài phạm vi" README.md skills/*/SKILL.md SECURITY.md CONTRIBUTING.md
 ```
 
 README:
-- Xoá phần khai báo folder, ví dụ config có `folders`, đoạn `GDRIVE_FOLDERS` cho CI, và mục `gdrive folder`.
-- Luồng cài còn 2 bước: cài, rồi `gdrive init --sa-json <file>`. Sau đó share folder cho email service account.
-- Thêm mục "Quyền" với bảng:
+- Xoá phần khai báo folder, ví dụ config có `folders`, đoạn `GDRIVE_FOLDERS`, và mục `gdrive folder`.
+- Viết lại luồng dùng: cài, chạy `gdrive init --sa-json <file>`, share file hoặc folder cho email service account, rồi gửi link cho AI.
+- Thêm mục "Quyền":
 
   | Share cho email service account | AI làm được |
   |---|---|
   | Editor | đọc, ghi ô, append, tạo, đổi tên, di chuyển |
   | Viewer / Commenter | chỉ đọc |
-  | Không share | không thấy |
-  | `mode: readonly` trong config | chỉ đọc mọi nơi, tool ghi bị ẩn |
+  | Không share | báo lỗi kèm email cần share |
+  | `mode: readonly` trong config | chỉ đọc ở mọi nơi, tool ghi bị ẩn |
 
-- Thêm cảnh báo: AI ghi được mọi thứ service account là Editor. Share Viewer cho những gì chỉ cần đọc. Email service account nên coi là tài khoản riêng của AI.
-- Thêm mục "Nâng cấp từ v0.4.0": khoá `folders` không còn tác dụng, xoá thì tuỳ; muốn ghi thì `gdrive init --mode readwrite --yes`; lệnh `gdrive folder` đã bỏ.
-- Ví dụ địa chỉ `alias/path` đổi thành `tên-mục-được-share/path`, ví dụ `gdriver/bao-cao/KPI`.
-- Ví dụ output `drive_ls` đổi sang dạng `# 5 shared` như spec mục 2.
+- Thêm cảnh báo:
+  - AI ghi được mọi thứ mà service account là Editor;
+  - thứ gì chỉ cần đọc thì share quyền Viewer;
+  - coi email service account là tài khoản riêng của AI.
+- Thêm mục "Nâng cấp từ v0.4.0":
+  - khoá `folders` không còn tác dụng, xoá hay giữ đều được;
+  - muốn ghi thì chạy `gdrive init --mode readwrite --yes`;
+  - lệnh `gdrive folder` đã bỏ;
+  - `drive_ls` cần link folder.
+- Đổi các ví dụ dùng `alias/path` sang link hoặc id.
 
-`skills/gdrive/SKILL.md`: thay hướng dẫn `folder add` và alias bằng: gọi `drive_ls` để xem gì được share; 404/403 thì nhờ người dùng share cho email service account; "Chỉ đọc" thì cần quyền Editor.
+`skills/gdrive/SKILL.md`:
+- Truyền nguyên link người dùng gửi.
+- Gặp 404/403 thì nhờ người dùng share cho email service account.
+- Gặp "Chỉ đọc" thì báo cần quyền Editor.
+- Bỏ `folder add` và alias.
 
-`skills/gdrive-setup/SKILL.md`: bỏ bước `folder add`; thêm bước "share folder cho email service account, Editor nếu muốn AI ghi".
+`skills/gdrive-setup/SKILL.md`:
+- Bỏ bước `folder add`.
+- Thêm bước "share file hoặc folder cho email service account, chọn Editor nếu muốn AI ghi".
 
-`SECURITY.md`, mục "Những thứ được tính là lỗ hổng": thay gạch đầu dòng "Phạm vi folder bị vượt qua…" bằng:
+`SECURITY.md`:
+- Mục "Những thứ được tính là lỗ hổng": thay gạch đầu dòng "Phạm vi folder bị vượt qua…" bằng:
 
 ```markdown
 - Ghi được khi config đang `mode: readonly`.
 - Tool đọc hoặc ghi được file không share cho service account.
 ```
 
-Ở mục "Ngoài phạm vi", thay "tự thêm folder với `--access write`" bằng "tự share quyền Editor". Bảng phiên bản: `0.5.x | Có`, `< 0.5 | Không`.
+- Mục "Ngoài phạm vi": đổi "tự thêm folder với `--access write`" thành "tự share quyền Editor".
+- Bảng phiên bản: `0.5.x | Có`, `< 0.5 | Không`.
 
 `CONTRIBUTING.md`:
 - Thay đoạn "Mọi truy cập đi qua danh sách folder…" bằng:
@@ -1480,17 +1121,17 @@ Quyền do Drive quyết định qua share (`src/access.mjs`): Editor thì ghi, 
 kiểm `capabilities` trước khi gọi API và bị ẩn khi config `mode: readonly`.
 ```
 
-- Bảng cấu trúc: dòng `src/folders.mjs, src/scope.mjs` thay bằng `src/access.mjs` với mô tả "Mục được share, phân giải địa chỉ, kiểm quyền ghi".
-- Ví dụ `git tag -a v0.4.0` đổi thành `v0.5.0`.
+- Bảng cấu trúc: đổi dòng `src/folders.mjs, src/scope.mjs` thành `src/access.mjs | Phân giải link, kiểm quyền ghi, mode`.
+- Mục phát hành: đổi ví dụ `v0.4.0` thành `v0.5.0`.
 
-Theo ghi chú của người dùng từ các đợt trước, chạy skill `humanizer:humanizer` trên các đoạn README mới viết.
+Chạy skill `humanizer:humanizer` trên các đoạn README mới viết, theo yêu cầu của người dùng.
 
 - [ ] **Step 5: Kiểm và commit**
 
 Run: `node --test && node bench/tokens.mjs`
 Expected: PASS.
 
-Chạy lại lệnh `grep` ở Step 4. Chỉ được còn kết quả trong mục "Nâng cấp từ v0.4.0" của README và trong CHANGELOG.
+Chạy lại lệnh `grep` ở Step 4. Kết quả chỉ được còn ở mục nâng cấp của README và trong CHANGELOG.
 
 ```bash
 git add README.md CHANGELOG.md SECURITY.md CONTRIBUTING.md skills package.json .claude-plugin/plugin.json server/index.mjs test/version.test.mjs
@@ -1501,48 +1142,52 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 8: Kiểm chứng trên Drive thật và đo token
+### Task 6: Kiểm chứng trên Drive thật, đo request
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-02-share-based-access-design.md` (thêm mục "Kết quả kiểm chứng")
-- Modify: `README.md` (số token của `drive_ls` gốc, nếu README có bảng số)
 
-Cần config thật trên máy. Config hiện có nằm ở `~/.claude/plugins/data/gdrive-gdrive-cli/config.json`, `mode: readonly`. Chỉ ghi khi người dùng đồng ý đổi mode cho lần chạy, bằng `--mode readwrite` trên CLI hoặc biến môi trường cho server thử. **Không** sửa config thật của người dùng nếu chưa hỏi.
+Config thật nằm ở `~/.claude/plugins/data/gdrive-gdrive-cli/config.json`, đang `mode: readonly`. **Không** sửa file này. Phần ghi chỉ chạy khi người dùng đồng ý, và chạy với `GDRIVE_CONFIG_DIR` trỏ tới một bản sao trong scratchpad đã đổi sang `mode: readwrite`.
 
-- [ ] **Step 1: Đọc (không cần quyền ghi)**
+- [ ] **Step 1: Đọc**
 
-```bash
-node bin/cli.mjs ls
-node bin/cli.mjs ls --json | head -c 600
-```
+Viết một script tạm trong scratchpad. Script gửi lần lượt các frame sau vào `node server/index.mjs`:
+- `initialize`;
+- `tools/list`;
+- `tools/call drive_ls { path: 'https://drive.google.com/drive/folders/1xmedZmMAN7at08zCYDgy5l4WjKC6cwrV' }`;
+- `tools/call drive_read { target: <id một file trong đó> }`;
+- `tools/call drive_read { target: '1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }`.
 
-Expected: `# 5 shared · readonly — …` với 5 folder đo hôm 2026-10-02, tất cả `(read)` vì config đang readonly.
-
-Kiểm qua MCP server bằng một script tạm trong scratchpad. Script gửi `initialize`, `tools/list`, rồi `tools/call drive_ls {}` và `drive_read { target: 'gdriver' }` vào `node server/index.mjs`, sau đó in các frame.
+Chạy với `GDRIVE_DEBUG=1` để đếm request trên stderr.
 
 Expected:
-- `tools/list` có 2 tool;
-- `drive_ls` có 5 dòng `d … (read) …`;
-- `drive_read gdriver` trả `# gdriver · folder · dùng drive_ls để liệt kê`, tức là phân giải được tên gốc `gdriver`, chỉ 7 ký tự.
+- `tools/list` có 2 tool, vì config đang readonly.
+- `drive_ls` ra `# gdriver (read) · N` kèm danh sách.
+- Id không tồn tại ra `✗ 404: chưa share cho <email> …`.
+- Mở folder lần đầu tốn đúng 1 request metadata và 1 request list.
 
 - [ ] **Step 2: Ghi (hỏi người dùng trước)**
 
-Hỏi người dùng hai điều: cho chạy thử ghi trong folder `gdriver` không, và có Google Sheet trống nào để ghi không. Nếu đồng ý thì chạy với `GDRIVE_CONFIG_DIR` trỏ tới bản sao config trong scratchpad đã đổi `mode: readwrite`, để không đụng file thật:
+Hỏi người dùng ba điều:
+- có cho chạy thử ghi trong `gdriver` không;
+- có Google Sheet trống nào để ghi không;
+- có mục nào đang share quyền Viewer để thử không.
 
-- `drive_create { parent: 'gdriver', name: 'gdrive-v05-verify', kind: 'folder' }` → `✓ folder …`
-- `drive_move { target: 'gdriver/gdrive-v05-verify', new_name: 'gdrive-v05-verified' }` → `✓ gdrive-v05-verified`
+Nếu đồng ý thì chạy:
+- `drive_create { parent: <link gdriver>, name: 'gdrive-v05-verify', kind: 'folder' }` → `✓ folder …`
+- `drive_move { target: <id vừa tạo>, new_name: 'gdrive-v05-verified' }` → `✓ gdrive-v05-verified`
 - Nếu có Sheet thử: `sheet_write { target: <url>, cells: { A1: 'v0.5' }, append: [['ok']] }` → `✓ …: 1 cells, +1 rows`
-- Nếu người dùng share được một folder quyền Viewer: `drive_create` vào đó → `✗ Chỉ đọc: …`
+- Nếu có mục Viewer: `drive_create` vào đó → `✗ Chỉ đọc: …`
 
-Xoá bản sao config trong scratchpad sau khi xong.
+Xong thì xoá bản sao config trong scratchpad. Báo người dùng các folder thử còn lại để họ tự xoá, vì service account không xoá file.
 
-- [ ] **Step 3: Đo token**
+- [ ] **Step 3: Đo và ghi kết quả**
 
-Đo output `drive_ls` gốc bằng tiktoken `o200k_base`, cùng cách đo ở `docs/superpowers/specs/2026-10-01-measurements.md`. Ghi bảng vào spec mục mới "Kết quả kiểm chứng (ngày đo)":
-- token schema ở `readwrite` và `readonly`;
-- token `drive_ls` gốc;
-- độ trễ `drive_ls` gốc lần đầu và lần hai (lần hai phải từ cache, dưới 50 ms);
-- số request khi đọc một sheet theo id, so với v0.4.0.
+Đo:
+- token schema ở `readwrite` và `readonly`, bằng tiktoken `o200k_base`, theo cách đã dùng trong `docs/superpowers/specs/2026-10-01-measurements.md`;
+- số request khi đọc một sheet theo link, lần đầu và lần hai, so với v0.4.0.
+
+Ghi bảng vào spec, mục mới "Kết quả kiểm chứng (<ngày>)". Nếu README có bảng số thì cập nhật luôn.
 
 - [ ] **Step 4: Commit**
 
@@ -1559,22 +1204,26 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - **Spec phủ đủ:**
   - Mục 1:
-    - capabilities → Task 1 và 2;
-    - `mode` → Task 2, 5, 6;
-    - `folders` và `GDRIVE_FOLDERS` bị bỏ qua → Task 5, 6;
-    - lệnh `folder` → Task 6.
+    - capabilities → Task 1;
+    - `mode` → Task 1, 3, 4;
+    - `folders` và `GDRIVE_FOLDERS` → Task 3, 4;
+    - lệnh `folder` → Task 4.
   - Mục 2:
-    - gốc, cache, phân trang, readonly, danh sách rỗng → Task 2, 3, 4;
-    - phân giải địa chỉ → Task 2;
-    - tool ghi theo mode → Task 4, 5;
-    - instructions → Task 5;
-    - My Drive giữ nguyên quy tắc cũ → Task 4 (test `drive_create` cũ giữ nguyên).
-  - Mục 3 CLI → Task 6. Mục 4 bảng file → Task 1–6. Mục 5 test → các task tương ứng, phần kiểm chứng thật → Task 8. Mục 6 tài liệu → Task 7.
-- **Tên nhất quán:**
-  - `createAccess`, `access.roots/resolve/accessOf/assertCanEdit/assertCanAddChildren/invalidate`, `modeFromConfig`, `AccessError`, `MIME_SHARED_DRIVE`, `READONLY_HINT`, `renderRoots`, `listSharedWithMe`, `listDrives` dùng giống nhau ở Task 1–6.
-  - `buildTools({ getClient, mode })` dùng ở Task 4, 5, 6.
+    - 5 tool, `drive_ls` cần `path`, kiểm quyền ghi → Task 2;
+    - tool theo `mode`, instructions → Task 3;
+    - quy tắc My Drive giữ nguyên qua test `drive_create` cũ → Task 2;
+    - lỗi 404 → Task 1, 3.
+  - Mục 3 (CLI) → Task 4.
+  - Mục 4 (bảng file) → Task 1–4.
+  - Mục 5: test nằm trong từng task; kiểm chứng thật → Task 6.
+  - Mục 6 (tài liệu) → Task 5.
+- **Tên nhất quán.** Các tên sau dùng giống nhau ở mọi task:
+  - `createAccess({ meta, mode })` với `resolve`, `accessOf`, `assertCanEdit`, `assertCanAddChildren`;
+  - `modeFromConfig`, `AccessError`, `READONLY_HINT`;
+  - `buildTools({ getClient, mode })`, `resolveCliMode({ flags, cfg, needWrite })`.
 - **Review Focus:**
-  - (1) và (2): `test/access.test.mjs`.
-  - (3): Task 1 test `FILE_FIELDS`, cộng test `sheet_write qua đường dẫn` ở Task 4.
-  - (4): Task 5 test config v0.4.0, Task 6 test status.
-  - (5): Task 4 test shortcut.
+  - (1) Task 2, test shortcut;
+  - (2) Task 3, test config v0.4.0;
+  - (3) Task 1, test thiếu capabilities;
+  - (4) Task 2, test `drive_ls` nhận link file;
+  - (5) Task 1 (404 ném nguyên) và Task 3 (`renderError`).
