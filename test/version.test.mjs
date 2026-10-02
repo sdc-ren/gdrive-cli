@@ -9,6 +9,7 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
 test('version giống nhau ở package.json, plugin.json, SERVER_INFO và hai SKILL.md', () => {
   const pkg = JSON.parse(read('package.json')).version;
+  assert.equal(pkg, '0.5.0');
   assert.equal(JSON.parse(read('.claude-plugin/plugin.json')).version, pkg);
   assert.match(read('server/index.mjs'), new RegExp(`version: '${pkg.replace(/\./g, '\\.')}'`));
   for (const f of ['skills/gdrive/SKILL.md', 'skills/gdrive-setup/SKILL.md']) {

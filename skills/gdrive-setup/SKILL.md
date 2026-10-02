@@ -1,7 +1,7 @@
 ---
 name: gdrive-setup
-description: Cấu hình credential và danh sách folder cho plugin gdrive lần đầu, hoặc đổi service account / thêm folder / bật quyền ghi cho folder. Dùng khi tool drive_* báo "Không tìm thấy credential" hoặc "ngoài phạm vi", khi người dùng nói "cài đặt gdrive", "cấu hình Google Drive", "đổi service account", "thêm folder", "bật quyền ghi sheet", hoặc khi cần kiểm tra vì sao gdrive không truy cập được file.
-version: 0.4.0
+description: Cấu hình credential cho plugin gdrive lần đầu, hoặc đổi service account / bật quyền ghi. Dùng khi tool drive_* báo "Không tìm thấy credential", "chưa share" hoặc "Chỉ đọc", khi người dùng nói "cài đặt gdrive", "cấu hình Google Drive", "đổi service account", "bật quyền ghi sheet", hoặc khi cần kiểm tra vì sao gdrive không truy cập được file.
+version: 0.5.0
 ---
 
 # Cấu hình gdrive
@@ -28,7 +28,8 @@ Xanh hết là xong, không cần làm gì thêm.
    ```bash
    node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --sa-json "<đường-dẫn>" --yes
    ```
-   Quyền đọc/ghi đặt theo từng folder ở bước 5.
+   `init` mặc định `--mode readwrite`: ghi được ở nơi service account là Editor. Người dùng muốn
+   chặn ghi hoàn toàn thì thêm `--mode readonly`.
 
 3. **Chưa có** → đưa hướng dẫn này rồi chờ họ tải file về:
 
@@ -45,27 +46,23 @@ Xanh hết là xong, không cần làm gì thêm.
    > khi bạn Share file/thư mục cho email này — Viewer để đọc, Editor để ghi. Y như share cho
    > một đồng nghiệp.
 
-5. Hỏi người dùng folder nào plugin được phép đọc, folder nào được ghi, rồi thêm từng folder:
-   ```bash
-   gdrive folder add "<link-folder>" --access read
-   gdrive folder add "<link-folder-ket-qua>" --access write
-   ```
-   (bản plugin Claude Code: `node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" folder add …`). Lệnh báo lỗi
-   nếu folder chưa được share cho email ở bước 4. Chưa có folder nào thì mọi tool từ chối.
+5. Nhờ người dùng share file hoặc folder cần dùng cho email ở bước 4: chọn **Editor** nếu muốn AI
+   ghi, **Viewer** nếu chỉ cần đọc. Sau đó chỉ cần gửi link cho AI, không phải khai báo gì thêm.
 
 6. Nhắc người dùng **mở session Claude Code mới** để MCP server nạp cấu hình.
 
-## Đổi quyền từng folder
+## Đổi quyền
+
+Quyền trên từng file hay folder đổi ngay trong Drive, ở hộp thoại Share: Editor để ghi, Viewer để
+chỉ đọc. Folder con và file bên trong theo quyền share của folder cha như mọi tài khoản Google khác.
+
+Khoá `mode` trong config là công tắc chung. `readonly` ẩn ba tool ghi (`sheet_write`,
+`drive_create`, `drive_move`) ở mọi nơi; không thấy chúng thì đó là lý do. Config tạo từ v0.4 trở
+về trước thường đang `readonly`. Bật ghi mà giữ key cũ:
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" folder list
-node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" folder set <tên> --access write
+node "${CLAUDE_PLUGIN_ROOT}/bin/cli.mjs" init --mode readwrite --yes
 ```
-
-Folder con ở mọi độ sâu theo quyền của folder đã thêm. Ba tool ghi (`sheet_write`, `drive_create`,
-`drive_move`) chỉ hiện khi có ít nhất một folder `write`; không thấy chúng thì đó là chủ ý.
-Khoá `mode` cũ (`readonly`/`readwrite`, đặt bằng `init --mode`) không còn tác dụng khi đã có folder.
-Bỏ một folder khỏi danh sách: `folder remove <tên>`.
 
 ## Dọn bản cài kiểu cũ
 

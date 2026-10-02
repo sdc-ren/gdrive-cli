@@ -62,6 +62,7 @@ GDRIVE_CONFIG_DIR=/tmp/gdrive-dev node bin/cli.mjs status
 | `server/index.mjs` | MCP server (JSON-RPC qua stdio) |
 | `bin/cli.mjs` | CLI `gdrive` |
 | `src/tools.mjs` | Định nghĩa các tool MCP |
+| `src/access.mjs` | Phân giải link, kiểm quyền ghi, mode |
 | `src/config.mjs` | Tìm và ghi file config |
 | `src/credentials.mjs`, `src/auth.mjs` | Lấy credential, ký JWT, đổi access token |
 | `src/clients.mjs` | `gdrive install --client` cho Codex, Copilot, Cursor, Kiro |
@@ -81,7 +82,8 @@ Private key chỉ nằm trong đúng một file config, chmod 600. Không in key
 kết quả tool, không ghi vào config của client AI. Lệnh nào nhận key thì nhận đường dẫn file,
 không nhận nội dung qua tham số hay qua hội thoại.
 
-Readonly là mặc định. Tool ghi chỉ xuất hiện khi config có `mode: readwrite`.
+Quyền do Drive quyết định qua share (`src/access.mjs`): Editor thì ghi, Viewer thì đọc. Tool ghi
+kiểm `capabilities` trước khi gọi API và bị ẩn khi config `mode: readonly`.
 
 Không phá file của người dùng. Code sửa file config của client phải merge đúng khoá của mình,
 và khi không đọc chắc được file (JSONC, TOML mơ hồ) thì để nguyên file và in hướng dẫn.
@@ -101,9 +103,9 @@ Test không gọi mạng và không đọc config thật của máy. Dùng HOME 
 
    ```bash
    git switch main && git pull
-   git tag -a v0.4.0 -m "v0.4.0"
-   git push origin v0.4.0
-   gh release create v0.4.0 --notes-file <ghi-chú.md>
+   git tag -a v0.5.0 -m "v0.5.0"
+   git push origin v0.5.0
+   gh release create v0.5.0 --notes-file <ghi-chú.md>
    ```
 
 ## Báo lỗi và đề xuất
