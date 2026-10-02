@@ -670,3 +670,14 @@ test('CLI write: lỗi --set báo exit 2 trước khi dựng client (không cầ
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('CLI folder: đã bỏ, in hướng dẫn và thoát mã 2', () => {
+  const home = mkdtempSync(join(tmpdir(), 'gdrive-cli-folder-'));
+  try {
+    const r = spawnSync(process.execPath, [CLI, 'folder', 'add', 'abcdefghij'], { env: sandboxEnv(home), encoding: 'utf8' });
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /Lệnh "folder" đã bỏ ở v0\.5\.0: quyền lấy theo share trên Drive\./);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});

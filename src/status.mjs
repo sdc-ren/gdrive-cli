@@ -3,6 +3,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 
+import { modeFromConfig, READONLY_HINT } from './access.mjs';
 import { findRegistrations } from './clients.mjs';
 import { about } from './drive.mjs';
 import { createClient } from './client.mjs';
@@ -16,9 +17,7 @@ import {
   readConfigWithSource,
 } from './config.mjs';
 import { resolveCredentials, scopesForMode } from './credentials.mjs';
-import { loadFolders } from './folders.mjs';
 import { nodeOk } from './node-version.mjs';
-import { NO_FOLDERS_MESSAGE } from './scope.mjs';
 
 const OK = '✅';
 const WARN = '⚠️ ';
@@ -70,7 +69,8 @@ export async function runStatus({
         fail();
       }
     }
-    log(`${OK} Chế độ: ${cfg.mode ?? 'readonly'}`);
+    const effective = modeFromConfig(cfg);
+    log(`${OK} Chế độ: ${effective}${effective === 'readonly' ? ` — ${READONLY_HINT}` : ''}`);
   }
   log(`${OK} Thư mục config chung: ${neutralConfigDir(env, home, platform)}`);
   const foreign = foreignPluginDataDir(env);
@@ -80,20 +80,8 @@ export async function runStatus({
     log(`${OK} Thư mục data plugin Claude: ${pluginDataDir(env, home)}`);
   }
 
-  // 1a. Danh sách folder được phép — không có thì mọi tool MCP đều từ chối.
-  try {
-    const folders = loadFolders({ config: cfg, env });
-    if (!folders.length) {
-      log(`${BAD} ${NO_FOLDERS_MESSAGE}`);
-      fail();
-    } else {
-      log(`${OK} Folder được phép: ${folders.length}${env.GDRIVE_FOLDERS ? ' (lấy từ GDRIVE_FOLDERS)' : ''}`);
-      for (const f of folders) log(`   ${f.name}  ${f.access}  ${f.id}`);
-    }
-  } catch (err) {
-    log(`${BAD} Danh sách folder hỏng: ${err.message}`);
-    fail();
-  }
+  // 1a. Khoá của v0.4.0, không còn tác dụng.
+  if (cfg && Object.hasOwn(cfg, 'folders')) log(`${WARN} Khoá "folders" không còn dùng từ v0.5.0, có thể xoá.`);
 
   // 1b. Client AI khác đã đăng ký MCP server chưa (plugin Claude tự lo, không liệt kê).
   const registrations = findRegistrations({ home, env, platform, cwd });
@@ -140,7 +128,7 @@ export async function runStatus({
 
   // 4. Gọi thật
   if (credentials) {
-    const mode = cfg?.mode ?? 'readonly';
+    const mode = modeFromConfig(cfg);
     log(`\n🔎 Gọi thử Drive API (scope ${mode})...`);
     try {
       const client = createClient({ mode, home, env, retries: 2 });

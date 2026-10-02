@@ -9,7 +9,7 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { runClientUninstall, runInstall } from '../src/clients.mjs';
-import { assertCliQueryAllowed, resolveCliListTarget, resolveCliMode, resolveCliTarget } from '../src/cli-scope.mjs';
+import { resolveCliMode } from '../src/cli-scope.mjs';
 import { createClient } from '../src/client.mjs';
 import { readConfig } from '../src/config.mjs';
 import {
@@ -20,8 +20,6 @@ import {
   shareFile,
   uploadFile,
 } from '../src/drive.mjs';
-import { runFolder } from '../src/folder-cli.mjs';
-import { loadFolders } from '../src/folders.mjs';
 import { KIND as FORMAT_KIND, MIME } from '../src/formats.mjs';
 import { runInit } from '../src/init.mjs';
 import { assertSafeCellValue } from '../src/sheet-guard.mjs';
@@ -29,7 +27,7 @@ import { batchUpdateValues, getMetadata, pickSheet } from '../src/sheets.mjs';
 import { runStatus } from '../src/status.mjs';
 import { runUninstall } from '../src/uninstall.mjs';
 import { inspect, readDocument, readTable } from '../src/read-document.mjs';
-import { buildA1 } from '../src/url.mjs';
+import { buildA1, parseGoogleUrl } from '../src/url.mjs';
 
 const VALUE_FLAGS = new Set([
   'sheet', 'range', 'max-rows', 'max-chars', 'format', 'out', 'folder', 'name-contains',
@@ -82,9 +80,6 @@ const HELP = `gdrive — Google Drive / Sheets / Docs / Slides bằng service ac
 
   gdrive init [--sa-json <file>|--adc] [--mode readonly|readwrite] [--yes] [--no-test] [--no-skill]
   gdrive status
-  gdrive folder add <url|id> [--name <tên>] [--access read|write]
-  gdrive folder list | set <tên> --access … | remove <tên>
-        Danh sách folder được phép — tool MCP chỉ đọc/ghi trong các folder này.
   gdrive uninstall [--purge]
 
   gdrive install --client <codex|copilot|copilot-cli|cursor|kiro>[,…] [--project] [--skill]
@@ -138,21 +133,14 @@ function printWarnings(warnings) {
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
-const cliFolders = () => loadFolders({ config: readConfig(), env: process.env });
-
 function clientFor(flags, { needWrite = false } = {}) {
-  const cfg = readConfig();
-  const folders = loadFolders({ config: cfg, env: process.env });
-  const mode = resolveCliMode({ flags, cfg, folders, needWrite });
+  const mode = resolveCliMode({ flags, cfg: readConfig(), needWrite });
   return createClient({ mode, retries: 2 });
 }
 
-/**
- * Có danh sách folder thì CLI tuân phạm vi như MCP (xem src/cli-scope.mjs); `write: true`
- * thì file phải nằm trong folder có quyền write. Scope tạo mới mỗi lệnh.
- */
-function scopedTarget(client, input, { write = false } = {}) {
-  return resolveCliTarget({ client, input, write, folders: cliFolders() });
+/** CLI nhận URL hoặc id; quyền do Drive quyết định. Giữ tên cũ để không sửa chỗ gọi. */
+async function scopedTarget(_client, input) {
+  return parseGoogleUrl(input);
 }
 
 function requireArg(flags, index, what) {
@@ -250,17 +238,8 @@ async function cmdInfo(flags) {
 
 async function cmdLs(flags) {
   const target = flags._[1];
-  const folders = cliFolders();
-  assertCliQueryAllowed({ query: flags.query, folders });
   const client = clientFor(flags);
-  const listTarget = await resolveCliListTarget({ client, target, folders });
-  if (listTarget.roots) {
-    // Có danh sách folder mà không chỉ đích: in các folder được phép, không liệt kê cả Drive.
-    if (flags.json) json({ folders: listTarget.roots });
-    else out([`# ${listTarget.roots.length} folders`, ...listTarget.roots.map((f) => `d ${f.name} (${f.access}) ${f.id}`)].join('\n'));
-    return true;
-  }
-  const { folderId } = listTarget;
+  const folderId = target ? parseGoogleUrl(target).id : null;
   const { files, nextPageToken } = await listFiles(client, {
     folderId,
     nameContains: flags['name-contains'] ?? null,
@@ -413,7 +392,11 @@ async function main() {
     case 'get': return cmdGet(flags);
     case 'put': return cmdPut(flags);
     case 'write': return cmdWrite(flags);
-    case 'folder': return runFolder(flags);
+    case 'folder': {
+      const e = new Error('Lệnh "folder" đã bỏ ở v0.5.0: quyền lấy theo share trên Drive.');
+      e.exitCode = 2;
+      throw e;
+    }
     case 'init': return runInit(flags);
     case 'status': return runStatus({});
     case 'install': return runInstall(flags, { hasConfig: Boolean(readConfig()) });

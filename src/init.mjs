@@ -122,9 +122,9 @@ export async function runInit(
       return false;
     }
 
-    const mode = (flags.mode ?? existing?.mode) === 'readwrite' ? 'readwrite' : 'readonly';
-    // Giữ mọi khoá khác (folders…) của config cũ; chỉ thay phần credential và mode.
-    const { clientEmail: _e, privateKey: _k, projectId: _p, useAdc: _a, mode: _m, ...keep } = existing ?? {};
+    const mode = (flags.mode ?? existing?.mode) === 'readonly' ? 'readonly' : 'readwrite';
+    // Giữ các khoá khác của config cũ; thay credential và mode. `folders` (v0.4.0) không còn dùng.
+    const { clientEmail: _e, privateKey: _k, projectId: _p, useAdc: _a, mode: _m, folders: _f, ...keep } = existing ?? {};
     const cfgFile = writeConfig({ ...keep, mode, useAdc, ...(credentials ?? {}) }, home, env);
     if (process.platform === 'win32') {
       log(`✅ Đã ghi cấu hình → ${cfgFile}`);
@@ -133,9 +133,7 @@ export async function runInit(
     } else {
       log(`✅ Đã ghi cấu hình → ${cfgFile} (chmod 600)`);
     }
-    log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi client AI' : ''}`);
-    const hasFolders = (Array.isArray(keep.folders) && keep.folders.length > 0) || Boolean(env.GDRIVE_FOLDERS);
-    if (!hasFolders) log('   Chưa có folder nào được phép — chạy: gdrive folder add <url-folder> [--access write]');
+    log(`   Chế độ: ${mode}${mode === 'readonly' ? ' — tool ghi bị ẩn khỏi client AI' : ' — ghi được ở nơi service account là Editor'}`);
 
     if (!flags['no-test']) {
       log('\n🔎 Kiểm tra kết nối...');
