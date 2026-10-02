@@ -24,7 +24,7 @@ const { createClient } = await import('../src/client.mjs');
 const { configSearchPaths, readConfigWithSource } = await import('../src/config.mjs');
 const { buildTools } = await import('../src/tools.mjs');
 const { INSTRUCTIONS } = await import('../src/instructions.mjs');
-const { loadFolders } = await import('../src/folders.mjs');
+const { modeFromConfig } = await import('../src/access.mjs');
 const { renderError } = await import('../src/render.mjs');
 
 // Phiên bản protocol ta biết. Client gửi phiên bản khác thì echo lại của client —
@@ -81,21 +81,12 @@ function fingerprintForConfigs() {
 
 function buildState() {
   const cfgWithSource = readConfigWithSource();
-  let folders = [];
-  let folderError = null;
-  try {
-    folders = loadFolders({ config: cfgWithSource?.config ?? null, env: process.env });
-  } catch (err) {
-    folderError = err; // config hỏng: server vẫn sống, mọi tool báo lỗi này
-  }
-  const hasWrite = folders.some((f) => f.access === 'write');
+  const mode = modeFromConfig(cfgWithSource?.config ?? null);
   const fingerprint = fingerprintForConfigs();
-  // State mới = tools mới = scope/meta mới: scope bất biến với danh sách folder, nên đổi
-  // config (fingerprint đổi) là phải dựng lại toàn bộ ở đây.
+  // Đổi config (fingerprint đổi) thì dựng lại tools và cache metadata: credential có thể đã
+  // đổi sang service account khác, quyền cũ trong cache không còn đúng.
   const next = {
-    folders,
-    hasWrite,
-    folderError,
+    mode,
     client: null,
     tools: [],
     byName: new Map(),
@@ -104,10 +95,10 @@ function buildState() {
     fingerprint,
   };
   const getClient = () => {
-    if (!next.client) next.client = createClient({ mode: hasWrite ? 'readwrite' : 'readonly', retries: 4 });
+    if (!next.client) next.client = createClient({ mode, retries: 4 });
     return next.client;
   };
-  next.tools = buildTools({ getClient, folders });
+  next.tools = buildTools({ getClient, mode });
   next.byName = new Map(next.tools.map((t) => [t.name, t]));
   next.listPayload = {
     tools: next.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
@@ -121,7 +112,7 @@ function refreshStateIfChanged() {
   const fingerprint = fingerprintForConfigs();
   if (fingerprint === state.fingerprint) return false;
   const next = buildState();
-  const toolsChanged = next.hasWrite !== state.hasWrite;
+  const toolsChanged = next.mode !== state.mode;
   state = next;
   return toolsChanged;
 }
@@ -157,7 +148,6 @@ async function handle(msg) {
       const tool = snapshot.byName.get(params?.name);
       if (!tool) return fail(id, -32602, `Không có tool "${params?.name}".`);
       try {
-        if (snapshot.folderError) throw snapshot.folderError;
         const text = await tool.run(params?.arguments ?? {});
         return ok(id, { content: [{ type: 'text', text }] });
       } catch (err) {
